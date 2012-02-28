@@ -256,6 +256,20 @@
 								:size (mem-aref len :long 0)
 								:type (mem-aref type :int 0)))))
 
+(defcenum +HASH-TYPE+
+	(:MD5  1)
+	(:SHA1 2))
+
+(defctype +keyhash+ :pointer)
+(defcfun ("libssh2_hostkey_hash" session-hostkey-hash) +keyhash+
+	(session +session+) (hash-type +HASH-TYPE+))
+
+(defun session-hostkey-fingerprint (session &optional (type :SHA1))
+	(let ((hash (session-hostkey-hash session type)))
+		(format nil "~{~2,'0X~^:~}"
+						(loop for i below (if (eq type :SHA1) 20 16)
+							 collect (mem-aref hash :char i)))))
+
 (defbitfield +known-hosts-flags+ 
 	(.type-plain. 1)
 	(.type-sha1.  2)
@@ -424,6 +438,18 @@
 	(request :string) (request-length :unsigned-int)
 	(message :string) (message-length :unsigned-int))
 
+(defcfun ("libssh2_channel_setenv_ex" --channel-setenv-ex) +ERROR-CODE+
+	(channel +channel+) 
+	(varname :string) (varname-len :int)
+	(value :string) (value-len :int))
+
+(defun channel-setenv (channel name value)
+	(with-foreign-strings ((fs-name  name)
+												 (fs-value value))
+		(--channel-setenv-ex channel 
+												 fs-name  (length name)
+												 fs-value (length value))))
+
 (defun channel-process-start (channel request message)
 	(with-foreign-strings ((fs-request request)
 												 (fs-message message))
@@ -560,7 +586,10 @@
 (define-condition ssh-bad-hostkey (error)
 	((reason :type      +CHECK-VERDICT+
 					 :accessor  reason
-					 :initarg   :reason)))
+					 :initarg   :reason)
+	 (hash   :type      string
+					 :accessor  hash
+					 :initarg   :hash)))
 
 (defmethod create-ssh-connection (host port (hosts-db string))
 	(let ((new-session nil)
@@ -639,7 +668,8 @@
 					t
 					(restart-case 
 							(error 'ssh-bad-hostkey 
-										 :reason host-key-status)
+										 :reason host-key-status
+										 :key (session-hostkey-fingerprint (session ssh)))
 						(accept () t)
 						(drop () nil)
 						(accept-once  (&optional (comment "")) 
@@ -911,23 +941,27 @@
 			(channel-free channel))))
 
 (defmethod execute ((ssh ssh-connection) (command string))
-	(let ((new-channel 
-				 (repeat-and-wait-until-complete ((socket ssh))
-					 (channel-open (session ssh)))))
-		(if (pointerp new-channel)
-				(if (not (null-pointer-p new-channel))
-						(let ((retval
-									 (repeat-and-wait-until-complete ((socket ssh))
-										 (channel-exec new-channel command))))
-							(if (eq retval :ERROR-NONE)
-									(make-instance 'ssh-channel-stream
-																 :socket  (socket ssh)
-																 :channel new-channel)
-									(throw-last-error (session ssh))))
-						(throw-last-error (session ssh)))
-				(throw-last-error (session ssh)))))
-	
-(defmacro with-execute ((stdio-stream ssh-connection command) &body body)
+	(with-slots (socket session) ssh
+		(let ((new-channel 
+					 (repeat-and-wait-until-complete 
+							 (socket)
+						 (channel-open session))))
+			(if (pointerp new-channel)
+					(if (not (null-pointer-p new-channel))
+							(let ((retval
+										 (repeat-and-wait-until-complete 
+												 (socket)
+											 (channel-exec new-channel command))))
+								(if (eq retval :ERROR-NONE)
+										(make-instance 'ssh-channel-stream
+																	 :socket  socket
+																	 :channel new-channel))
+								(throw-last-error session)))
+					(throw-last-error session))
+			(throw-last-error session))))
+
+(defmacro with-execute ((stdio-stream ssh-connection command)
+												&body body)
 	`(let ((,stdio-stream (execute ,ssh-connection ,command)))
 		 (unwind-protect
 					(let ((body-retval
