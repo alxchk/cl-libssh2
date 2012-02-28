@@ -2,6 +2,7 @@
 (ql:quickload :usocket)
 (ql:quickload :trivial-gray-streams)
 (ql:quickload :babel)
+(ql:quickload :split-sequence)
 
 (defpackage libssh2
 	(:use :cffi 
@@ -212,6 +213,17 @@
 (defcfun ("libssh2_session_handshake" session-handshake) +ERROR-CODE+
 	(session +session+) (socket :int))
 
+(defcfun ("libssh2_userauth_list" --session-auth-methods-list) :string
+	(session +session+) (username :string) (username-length :unsigned-int))
+
+(defun session-auth-methods-list (session username)
+	(with-foreign-string (fs-username username)
+		(mapcar (lambda (item) (intern (string-upcase item) 'keyword))
+						(split-sequence:split-sequence 
+						 #\,
+						 (--session-auth-methods-list 
+							session fs-username (length username))))))
+
 (defctype +known-hosts+ :pointer)
 (defcfun ("libssh2_knownhost_init" known-hosts-init) +known-hosts+
 	(session +session+))
@@ -268,7 +280,7 @@
 	(let ((hash (session-hostkey-hash session type)))
 		(format nil "~{~2,'0X~^:~}"
 						(loop for i below (if (eq type :SHA1) 20 16)
-							 collect (mem-aref hash :char i)))))
+							 collect (mem-aref hash :unsigned-char i)))))
 
 (defbitfield +known-hosts-flags+ 
 	(.type-plain. 1)
