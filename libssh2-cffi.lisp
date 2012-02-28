@@ -452,11 +452,14 @@
 	(channel +CHANNEL+) (stream +STREAM-ID+)
 	(buffer :pointer) (buffer-length :unsigned-int))
 
-(defcfun ("libssh2_channel_flush_ex" --channel-flush-ex) +ERROR-CODE+
+(defcfun ("libssh2_channel_flush_ex" --channel-flush-ex) :int
 	(channel +CHANNEL+) (stream +STREAM-ID+))
 
 (defun channel-flush (channel)
-	(--channel-flush-ex channel :ALL))
+	(let ((ret (--channel-flush-ex channel :ALL)))
+		(if (> ret 0)
+				:ERROR-NONE
+				(convert-from-foreign ret '+ERROR-CODE+))))
 
 (defun channel-read (channel output-buffer &key (start 0) (end nil) (type :STDOUT))
 	(with-pointer-to-vector-data (buffer output-buffer)
