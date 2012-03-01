@@ -217,12 +217,12 @@
 	(session +session+) (username :string) (username-length :unsigned-int))
 
 (defun session-auth-methods-list (session username)
-	(with-foreign-string (fs-username username)
+	(with-foreign-string ((fs-username fs-username-size) username)
 		(mapcar (lambda (item) (intern (string-upcase item) 'keyword))
 						(split-sequence:split-sequence 
 						 #\,
 						 (--session-auth-methods-list 
-							session fs-username (length username))))))
+							session fs-username fs-username-size)))))
 
 (defctype +ssh-agent+ :pointer)
 (defcfun ("libssh2_agent_init" agent-init) +ssh-agent+
@@ -437,11 +437,11 @@
 					 (stringp host-full-string))
 			(with-foreign-strings ((fs-host-full-string host-full-string)
 														 (fs-salt    salt)
-														 (fs-comment comment))
+														 ((fs-comment fs-comment-size) comment))
 				(--known-hosts-add known-hosts 
 													 fs-host-full-string fs-salt
 													 (key-data key) (key-size key)
-													 fs-comment (length comment)
+													 fs-comment fs-comment-size
 													 (foreign-bitfield-value '+known-hosts-flags+ flags)
 													 store))))
 													 
@@ -459,14 +459,12 @@
 	(password-change :pointer))
 			
 (defun user-auth-password (session username password &optional (callback (null-pointer)))
-	(let ((username-length (length username))
-				(password-length (length password)))
-		(with-foreign-strings ((fs-username username)
-													 (fs-password password))
-			(--user-auth-password session
-														fs-username username-length
-														fs-password password-length
-														callback))))
+	(with-foreign-strings (((fs-username fs-username-size) username)
+												 ((fs-password fs-password-size) password))
+		(--user-auth-password session
+													fs-username fs-username-size
+													fs-password fs-password-size
+													callback)))
 
 (defctype +channel+ :pointer)
 (defcfun ("libssh2_channel_open_ex" --channel-open-ex) +channel+
@@ -478,16 +476,20 @@
 															 (window-size 262144)
 															 (packet-size 32768)
 															 (message ""))
-	(with-foreign-strings ((fs-channel-type channel-type)
-												 (fs-message      message))
-		(let* ((message-length (length message))
+	(with-foreign-strings (((fs-channel-type fs-channel-type-size) channel-type)
+												 ((fs-message      fs-message-size)      message))
+		(let* ((pass-message (if (string= message "") 
+														 (null-pointer)
+														 fs-message))
+					 (pass-message-size (if (string= message "")
+																	0
+																	fs-message-size))
 					 (new-channel 
 						(--channel-open-ex session 
-															 fs-channel-type (length channel-type)
+															 fs-channel-type fs-channel-type-size
 															 window-size packet-size 
-															 (if (> message-length 0)
-																	 fs-message
-																	 (null-pointer)) message-length)))
+															 pass-message
+															 pass-message-size)))
 			(if (null-pointer-p new-channel)
 					(session-last-errno session)
 					new-channel))))
@@ -513,18 +515,18 @@
 	(value :string) (value-len :int))
 
 (defun channel-setenv (channel name value)
-	(with-foreign-strings ((fs-name  name)
-												 (fs-value value))
+	(with-foreign-strings (((fs-name  fs-name-size)  name)
+												 ((fs-value fs-value-size) value))
 		(--channel-setenv-ex channel 
-												 fs-name  (length name)
-												 fs-value (length value))))
+												 fs-name  fs-name-size
+												 fs-value fs-value-size)))
 
 (defun channel-process-start (channel request message)
-	(with-foreign-strings ((fs-request request)
-												 (fs-message message))
+	(with-foreign-strings (((fs-request fs-request-size) request)
+												 ((fs-message fs-message-size) message))
 		(--channel-process-startup channel 
-															 fs-request (length request)
-															 fs-message (length message))))
+															 fs-request fs-request-size
+															 fs-message fs-message-size)))
 
 
 (defun channel-exec (channel cmd)
@@ -930,7 +932,6 @@
 														;; Time to return nil
 														 nil))))))))
 				(repeat-not-wait)))))
-
 
 (defmethod stream-force-output ((stream ssh-channel-stream))
 	(with-slots (channel output-buffer output-pos output-size) stream
