@@ -466,6 +466,20 @@
 													fs-password fs-password-size
 													callback)))
 
+(defcfun ("libssh2_userauth_publickey_fromfile_ex" --user-auth-publickey) +ERROR-CODE+
+	(session +session+) 
+	(username :string) (username-len :unsigned-int)
+	(public-key :string) 
+	(private-key :string) (password :string))
+
+(defun user-auth-publickey (session username public-key private-key password)
+	(with-foreign-strings ((fs-username    username)
+												 (fs-public-key  public-key)
+												 (fs-private-key private-key)
+												 (fs-password    password))
+		(--user-auth-publickey session fs-username (length username)
+													 fs-public-key fs-private-key fs-password)))
+
 (defctype +channel+ :pointer)
 (defcfun ("libssh2_channel_open_ex" --channel-open-ex) +channel+
 	(session +session+) (channel-type :string) (channel-type-length :unsigned-int)
@@ -745,7 +759,7 @@
 								t)))))))
 
 (defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
-	(if (auth-passed ssh)
+	(if (eq (auth-passed ssh) :ERROR-NONE)
 			t
 			(if (ssh-verify-session ssh)
 					(setf (auth-passed ssh)
@@ -756,6 +770,26 @@
 		(user-auth-password (session  ssh)
 												(login    auth)
 												(password auth))))
+
+(defclass auth-publickey (auth-data)
+	((public-key  :type     string
+							  :initarg  :public-key
+							  :initform "id_rsa.pub"
+							  :accessor public-key)
+	 (private-key :type     string
+								:initarg  :private-key
+								:initform "id_rsa"
+								:accessor private-key)
+	 (password    :type     string
+								:initarg  :password
+								:initform (null-pointer)
+								:accessor password)))
+
+(defmethod authentication ((ssh ssh-connection) (auth auth-publickey))
+	(with-slots (login public-key private-key password) auth
+		(repeat-and-wait-until-complete ((socket sshc))
+			(user-auth-publickey (session ssh) 
+													 login public-key private-key password))))
 
 (defclass auth-agent (auth-data) ())
 
