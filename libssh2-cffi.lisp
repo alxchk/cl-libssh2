@@ -218,11 +218,13 @@
 
 (defun session-auth-methods-list (session username)
 	(with-foreign-string ((fs-username fs-username-size) username)
-		(mapcar (lambda (item) (intern (string-upcase item) 'keyword))
-						(split-sequence:split-sequence 
-						 #\,
-						 (--session-auth-methods-list 
-							session fs-username fs-username-size)))))
+		(let ((result  (--session-auth-methods-list 
+										session fs-username (- fs-username-size 1))))
+			(if result
+					(mapcar (lambda (item) (intern (string-upcase item) 'keyword))
+									(split-sequence:split-sequence 
+									 #\, result))
+					(session-last-errno session)))))
 
 (defctype +ssh-agent+ :pointer)
 (defcfun ("libssh2_agent_init" agent-init) +ssh-agent+
@@ -436,12 +438,12 @@
 					 (not (null-pointer-p (key-data key)))
 					 (stringp host-full-string))
 			(with-foreign-strings ((fs-host-full-string host-full-string)
-														 (fs-salt    salt)
+														 (fs-salt     salt)
 														 ((fs-comment fs-comment-size) comment))
 				(--known-hosts-add known-hosts 
 													 fs-host-full-string fs-salt
 													 (key-data key) (key-size key)
-													 fs-comment fs-comment-size
+													 fs-comment (- fs-comment-size 1)
 													 (foreign-bitfield-value '+known-hosts-flags+ flags)
 													 store))))
 													 
@@ -462,8 +464,8 @@
 	(with-foreign-strings (((fs-username fs-username-size) username)
 												 ((fs-password fs-password-size) password))
 		(--user-auth-password session
-													fs-username fs-username-size
-													fs-password fs-password-size
+													fs-username (- fs-username-size 1)
+													fs-password (- fs-password-size 1)
 													callback)))
 
 (defcfun ("libssh2_userauth_publickey_fromfile_ex" --user-auth-publickey) +ERROR-CODE+
@@ -473,11 +475,11 @@
 	(private-key :string) (password :string))
 
 (defun user-auth-publickey (session username public-key private-key password)
-	(with-foreign-strings ((fs-username    username)
+	(with-foreign-strings (((fs-username fs-username-size) username)
 												 (fs-public-key  public-key)
 												 (fs-private-key private-key)
 												 (fs-password    password))
-		(--user-auth-publickey session fs-username (length username)
+		(--user-auth-publickey session fs-username (- fs-username-size 1)
 													 fs-public-key fs-private-key fs-password)))
 
 (defctype +channel+ :pointer)
@@ -497,10 +499,10 @@
 														 fs-message))
 					 (pass-message-size (if (string= message "")
 																	0
-																	fs-message-size))
+																	(- fs-message-size 1)))
 					 (new-channel 
 						(--channel-open-ex session 
-															 fs-channel-type fs-channel-type-size
+															 fs-channel-type (- fs-channel-type-size 1)
 															 window-size packet-size 
 															 pass-message
 															 pass-message-size)))
@@ -532,15 +534,15 @@
 	(with-foreign-strings (((fs-name  fs-name-size)  name)
 												 ((fs-value fs-value-size) value))
 		(--channel-setenv-ex channel 
-												 fs-name  fs-name-size
-												 fs-value fs-value-size)))
+												 fs-name  (- fs-name-size 1)
+												 fs-value (- fs-value-size 1))))
 
 (defun channel-process-start (channel request message)
 	(with-foreign-strings (((fs-request fs-request-size) request)
 												 ((fs-message fs-message-size) message))
 		(--channel-process-startup channel 
-															 fs-request fs-request-size
-															 fs-message fs-message-size)))
+															 fs-request (- fs-request-size 1)
+															 fs-message (- fs-message-size 1))))
 
 
 (defun channel-exec (channel cmd)
@@ -757,6 +759,10 @@
 																 :comment comment)
 								(known-hosts-writefile known-hosts (hosts-db ssh))
 								t)))))))
+
+(defmethod authentication-methods ((ssh ssh-connection) (login string))
+		(repeat-and-wait-until-complete ((socket ssh))
+			(session-auth-methods-list (session ssh) login)))
 
 (defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
 	(if (eq (auth-passed ssh) :ERROR-NONE)
