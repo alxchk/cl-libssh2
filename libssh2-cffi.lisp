@@ -224,6 +224,57 @@
 						 (--session-auth-methods-list 
 							session fs-username (length username))))))
 
+(defctype +ssh-agent+ :pointer)
+(defcfun ("libssh2_agent_init" agent-init) +ssh-agent+
+	(session +session+))
+
+(defcfun ("libssh2_agent_free" agent-free) :void
+	(agent +ssh-agent+))
+
+(defcfun ("libssh2_agent_connect" agent-connect) +ERROR-CODE+
+	(agent +ssh-agent+))
+
+(defcfun ("libssh2_agent_disconnect" agent-disconnect) +ERROR-CODE+
+	(agent +ssh-agent+))
+
+(defcfun ("libssh2_agent_list_identities" agent-list-identies) +ERROR-CODE+
+	(agent +ssh-agent+))
+
+(defcenum +IDENTITY-AMOUNT+
+	(:MORE 0)
+	(:END  1))
+
+(defcfun ("libssh2_agent_get_identity" --agent-get-identity) +IDENTITY-AMOUNT+
+	(agent +ssh-agent+)
+	(store :pointer) (previous-public-key :pointer))
+
+(defun agent-identities-iterator (agent)
+	(when (eq (agent-list-identies agent) :ERROR-NONE)
+		(let ((agent agent)
+					(prev  (null-pointer)))
+			(lambda () 
+				(with-foreign-object (store :pointer)
+					(unless (eq (--agent-get-identity agent store prev)
+											:END)
+						(setf prev 
+									(mem-aref store :pointer 0))))))))
+
+(defmacro foreach-agent-identity ((identy agent) &body body)
+	`(let ((agent ,agent)
+				 (list-identies (agent-list-indenties ,agent))
+				 (prev (null-pointer)))
+		 (if (eq list-identies :ERROR-NONE)
+				 (with-foreign-object (store :pointer)
+					 (labels 
+							 ((process-next-identity ()
+									(unless (eq (--agent-get-identity agent store prev)
+															:END)
+										(let ((,identy (setf prev
+																				 (mem-aref store :pointer 0))))
+											,@body
+											(process-next-identity)))))
+						 (process-next-identity))))))													
+
 (defctype +known-hosts+ :pointer)
 (defcfun ("libssh2_knownhost_init" known-hosts-init) +known-hosts+
 	(session +session+))
@@ -394,13 +445,19 @@
 													 (foreign-bitfield-value '+known-hosts-flags+ flags)
 													 store))))
 													 
+(defcfun ("libssh2_agent_userauth" --agent-userauth) +ERROR-CODE+
+	(agent +ssh-agent+) (username :string) (identity :pointer))
+
+(defun user-auth-agent (agent username identity)
+	(with-foreign-string (fs-username username)
+		(--agent-userauth agent fs-username identity)))
 
 (defcfun ("libssh2_userauth_password_ex" --user-auth-password) +ERROR-CODE+
 	(session +session+) 
 	(username :string) (username-length :unsigned-int)
 	(password :string) (password-length :unsigned-int)
 	(password-change :pointer))
-
+			
 (defun user-auth-password (session username password &optional (callback (null-pointer)))
 	(let ((username-length (length username))
 				(password-length (length password)))
@@ -410,7 +467,7 @@
 														fs-username username-length
 														fs-password password-length
 														callback))))
-				
+
 (defctype +channel+ :pointer)
 (defcfun ("libssh2_channel_open_ex" --channel-open-ex) +channel+
 	(session +session+) (channel-type :string) (channel-type-length :unsigned-int)
@@ -555,7 +612,10 @@
 
 ;; CLOS FACADE: FOR BLOCKING STREAMS!! ;;
 (defclass auth-data ()
-	())
+	((login    :type      string
+					   :initarg   :login
+					   :initform  ""
+					   :reader    login)))
 	 
 (defclass ssh-connection ()
 	((session     :type     +session+
@@ -650,24 +710,10 @@
 					(port ssh)))
 
 (defclass auth-password (auth-data)
-	((login    :type      string
-					   :initarg   :login
-					   :initform  ""
-					   :reader    login)
-	 (password :type      string
+	((password :type      string
 						 :initarg   :password
 						 :initform  ""
 						 :reader    password)))
-
-(defmethod authentication ((auth auth-password) session)
-	(let ((result (user-auth-password session
-																		(login    auth)
-																		(password auth))))
-		(cond 
-			((eq result :ERROR-NONE)                  t)
-			((eq result :ERROR-EAGAIN)                :ERROR-EAGAIN)
-			((eq result :ERROR-AUTHENTICATION-FAILED) nil)
-			(t (throw-last-error session)))))
 
 (defmethod ssh-verify-session ((ssh ssh-connection))
 	(with-known-hosts (known-hosts ((session ssh) (hosts-db ssh)))
@@ -696,13 +742,41 @@
 								(known-hosts-writefile known-hosts (hosts-db ssh))
 								t)))))))
 
-(defmethod authentication ((ssh ssh-connection) (auth auth-data))
+(defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
 	(if (auth-passed ssh)
 			t
 			(if (ssh-verify-session ssh)
 					(setf (auth-passed ssh)
-								(repeat-and-wait-until-complete ((socket ssh))
-									(authentication auth (session ssh)))))))
+								(call-next-method)))))
+
+(defmethod authentication ((ssh ssh-connection) (auth auth-password))
+	(repeat-and-wait-until-complete ((socket (session ssh)))
+		(user-auth-password (session  ssh)
+												(login    auth)
+												(password auth))))
+
+(defclass auth-agent (auth-data) ())
+
+(defmethod authentication ((ssh ssh-connection) (auth auth-agent))
+	(let ((agent (agent-init (session ssh)))
+				(username (login auth)))
+		(unwind-protect
+				 (if (and agent
+									(eq (agent-connect agent)
+											:ERROR-NONE))
+						 (let ((next-identity (agent-identities-iterator agent)))
+							 (when next-identity
+								 (with-foreign-string (fs-username username)
+									 (loop for identity = (funcall next-identity)
+											while identity do
+												(if (eq
+														 (repeat-and-wait-until-complete ((socket ssh))
+															 (--agent-userauth agent fs-username identity))
+														 :ERROR-NONE)
+														(return t))))))
+						 (throw-last-error (session ssh)))
+			(when agent 
+				(agent-free agent)))))
 
 (defvar *ssh-channel-buffer-size* 64)
 
@@ -809,17 +883,20 @@
 										(co-end (if nl-pos nl-pos (input-size stream))))
 							 ;; Save substring or whole vector if any
 							 (when (> (input-size stream) 0)
-								 (push (babel:octets-to-string (input-buffer stream) 
-																							 :start (input-pos stream)
-																							 :end   co-end)
+								 (push (subseq (input-buffer stream) 
+															 (input-pos stream)
+															 co-end)
 											 output))
 							 
 							 (if nl-pos
 									 ;; If newline found - save position and return concatenated string
 									 (prog1
-											 (apply #'concatenate
-															(cons 'string
-																		(reverse output)))
+											 (babel:octets-to-string
+												(apply #'concatenate
+															 (cons '(VECTOR
+																			 (UNSIGNED-BYTE
+																				8))
+																		 (reverse output))))
 										 (setf (input-pos stream) (+ 1 co-end))
 										 (setf output '()))
 									 
@@ -841,9 +918,12 @@
 												(if (not (null output))
 														;; Return last cached data
 														(prog1
-																(apply #'concatenate
-																			 (cons 'string
-																						 (reverse output)))
+																(babel:octets-to-string
+																 (apply #'concatenate
+																				(cons '(VECTOR
+																								(UNSIGNED-BYTE
+																								 8))
+																							(reverse output))))
 															(setf (input-size stream) 0
 																		(input-pos  stream) 0)
 															(setf output '()))
@@ -955,22 +1035,19 @@
 (defmethod execute ((ssh ssh-connection) (command string))
 	(with-slots (socket session) ssh
 		(let ((new-channel 
-					 (repeat-and-wait-until-complete 
-							 (socket)
+					 (repeat-and-wait-until-complete (socket)
 						 (channel-open session))))
 			(if (pointerp new-channel)
 					(if (not (null-pointer-p new-channel))
-							(let ((retval
-										 (repeat-and-wait-until-complete 
-												 (socket)
-											 (channel-exec new-channel command))))
+							(let ((retval (repeat-and-wait-until-complete (socket)
+															(channel-exec new-channel command))))
 								(if (eq retval :ERROR-NONE)
 										(make-instance 'ssh-channel-stream
 																	 :socket  socket
-																	 :channel new-channel))
-								(throw-last-error session)))
-					(throw-last-error session))
-			(throw-last-error session))))
+																	 :channel new-channel)
+										(throw-last-error session)))
+							(throw-last-error session))
+					(throw-last-error session)))))
 
 (defmacro with-execute ((stdio-stream ssh-connection command)
 												&body body)
