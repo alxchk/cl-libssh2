@@ -702,7 +702,8 @@
 													 :description description
 													 :lang   lang)
 		(progn
-				(session-free (session ssh)))))
+			(usocket:socket-close (socket ssh))
+			(session-free (session ssh)))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
 	(session-hostkey (session ssh)))
