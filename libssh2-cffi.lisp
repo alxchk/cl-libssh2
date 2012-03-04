@@ -820,7 +820,7 @@
 			(when agent 
 				(agent-free agent)))))
 
-(defvar *ssh-channel-buffer-size* 64)
+(defvar *ssh-channel-buffer-size* 1400)
 
 (defclass ssh-channel-stream 
 		(fundamental-binary-input-stream
