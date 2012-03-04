@@ -114,20 +114,6 @@
 (defmethod print-object ((sge ssh-generic-error) stream)
 	(format stream "Libssh2: ~a (~a)" (message sge) (code sge)))
 					
-(defmacro repeat-and-wait-until-complete ((socket &optional (timeout 10)) &body body)
-	`(let ((retval :ERROR-NONE))
-		 (labels 
-				 ((again ()
-						(if (eq (setq retval 
-													(progn
-														,@body))
-										:ERROR-EAGAIN)
-								(progn
-									(usocket:wait-for-input ,socket :timeout ,timeout)
-									(again))
-								retval)))
-			 (again))))
-
 (defcfun ("libssh2_init" library-init) +ERROR-CODE+)
 (defcfun ("libssh2_exit" library-exit) :void)
 
@@ -689,10 +675,10 @@
 				 (progn
 					 (setq new-session (session-init))
 					 (setq new-socket (usocket:socket-connect host port))
+					 (session-set-blocking new-session :BLOCKING)
 					 
 					 (setq retval 
-								 (repeat-and-wait-until-complete (new-socket)
-									 (session-handshake new-session (usocket-get-fd new-socket))))
+								 (session-handshake new-session (usocket-get-fd new-socket)))
 					 
 					 (if (eq retval :ERROR-NONE)
 							 (make-instance 'ssh-connection
@@ -712,10 +698,9 @@
 
 (defmethod destroy-ssh-connection ((ssh ssh-connection) &key (description "") (lang ""))
 	(unwind-protect
-			 (repeat-and-wait-until-complete ((socket ssh))
-				 (session-disconnect (session ssh) 
-														 :description description
-														 :lang   lang))
+			 (session-disconnect (session ssh) 
+													 :description description
+													 :lang   lang)
 		(progn
 				(session-free (session ssh)))))
 
@@ -761,8 +746,7 @@
 								t)))))))
 
 (defmethod authentication-methods ((ssh ssh-connection) (login string))
-		(repeat-and-wait-until-complete ((socket ssh))
-			(session-auth-methods-list (session ssh) login)))
+	(session-auth-methods-list (session ssh) login))
 
 (defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
 	(if (eq (auth-passed ssh) :ERROR-NONE)
@@ -772,10 +756,9 @@
 								(call-next-method)))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
-	(repeat-and-wait-until-complete ((socket (session ssh)))
-		(user-auth-password (session  ssh)
-												(login    auth)
-												(password auth))))
+	(user-auth-password (session  ssh)
+											(login    auth)
+											(password auth)))
 
 (defclass auth-publickey (auth-data)
 	((public-key  :type     string
@@ -793,9 +776,8 @@
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-publickey))
 	(with-slots (login public-key private-key password) auth
-		(repeat-and-wait-until-complete ((socket sshc))
-			(user-auth-publickey (session ssh) 
-													 login public-key private-key password))))
+		(user-auth-publickey (session ssh) 
+												 login public-key private-key password)))
 
 (defclass auth-agent (auth-data) ())
 
@@ -812,8 +794,7 @@
 									 (loop for identity = (funcall next-identity)
 											while identity do
 												(if (eq
-														 (repeat-and-wait-until-complete ((socket ssh))
-															 (--agent-userauth agent fs-username identity))
+														 (--agent-userauth agent fs-username identity)
 														 :ERROR-NONE)
 														(return t))))))
 						 (throw-last-error (session ssh)))
@@ -869,9 +850,8 @@
 		 (prog1 (elt (input-buffer stream) (input-pos stream))
 			 (incf (input-pos stream))))
 		(t (progn
-				 (let ((amount (repeat-and-wait-until-complete ((socket stream))
-												 (channel-read (channel stream) 
-																			 (input-buffer stream)))))
+				 (let ((amount (channel-read (channel stream) 
+																		 (input-buffer stream))))
 					 (when (> amount 0)
 						 (setf (input-pos   stream)  1)
 						 (setf (input-size  stream)  amount)
@@ -894,9 +874,8 @@
 				 
 				 (fill-buffer-and-output ()
 					 (setf (input-size stream)
-								 (repeat-and-wait-until-complete ((socket stream))
-									 (channel-read (channel stream)
-																 (input-buffer stream))))
+								 (channel-read (channel stream)
+															 (input-buffer stream)))
 								 
 					 (setf (input-pos  stream) 0)
 						 
@@ -914,64 +893,63 @@
 
 (defmethod stream-read-line ((stream ssh-channel-stream))
 	(let ((output '()))
-		(repeat-and-wait-until-complete ((socket stream))
-			(labels
-					((repeat-not-wait ()
-						 ;; Search for new line in cached tail
-						 (let* ((nl-pos (position (char-code '#\Newline)
-																			(input-buffer stream)
-																			:start (input-pos  stream)
-																			:end   (input-size stream)))
-										(co-end (if nl-pos nl-pos (input-size stream))))
-							 ;; Save substring or whole vector if any
-							 (when (> (input-size stream) 0)
-								 (push (subseq (input-buffer stream) 
-															 (input-pos stream)
-															 co-end)
-											 output))
-							 
-							 (if nl-pos
-									 ;; If newline found - save position and return concatenated string
-									 (prog1
-											 (babel:octets-to-string
-												(apply #'concatenate
-															 (cons '(VECTOR
-																			 (UNSIGNED-BYTE
-																				8))
-																		 (reverse output))))
-										 (setf (input-pos stream) (+ 1 co-end))
-										 (setf output '()))
-									 
-									 ;; If not - try to catch next portion
-									 (multiple-value-bind (amount code)
-											 (channel-read (channel stream) (input-buffer stream))
-										 (cond 
-											 ((and (= amount 0) (eq code :ERROR-EAGAIN))
-												;; Just wait for next portion
-												code)
-											 ((> amount 0)
-												;; Save portion, don't care about error code. 
-												;; Care about it on next iteration
-												(progn 
-													(setf (input-pos  stream) 0)
-													(setf (input-size stream) amount)
-													(repeat-not-wait)))
-											 (t 
-												(if (not (null output))
-														;; Return last cached data
-														(prog1
-																(babel:octets-to-string
-																 (apply #'concatenate
-																				(cons '(VECTOR
-																								(UNSIGNED-BYTE
-																								 8))
-																							(reverse output))))
-															(setf (input-size stream) 0
-																		(input-pos  stream) 0)
-															(setf output '()))
-														;; Time to return nil
-														 nil))))))))
-				(repeat-not-wait)))))
+		(labels
+				((repeat-not-wait ()
+					 ;; Search for new line in cached tail
+					 (let* ((nl-pos (position (char-code '#\Newline)
+																		(input-buffer stream)
+																		:start (input-pos  stream)
+																		:end   (input-size stream)))
+									(co-end (if nl-pos nl-pos (input-size stream))))
+						 ;; Save substring or whole vector if any
+						 (when (> (input-size stream) 0)
+							 (push (subseq (input-buffer stream) 
+														 (input-pos stream)
+														 co-end)
+										 output))
+						 
+						 (if nl-pos
+								 ;; If newline found - save position and return concatenated string
+								 (prog1
+										 (babel:octets-to-string
+											(apply #'concatenate
+														 (cons '(VECTOR
+																		 (UNSIGNED-BYTE
+																			8))
+																	 (reverse output))))
+									 (setf (input-pos stream) (+ 1 co-end))
+									 (setf output '()))
+								 
+								 ;; If not - try to catch next portion
+								 (multiple-value-bind (amount code)
+										 (channel-read (channel stream) (input-buffer stream))
+									 (cond 
+										 ((and (= amount 0) (eq code :ERROR-EAGAIN))
+											;; Just wait for next portion
+											code)
+										 ((> amount 0)
+											;; Save portion, don't care about error code. 
+											;; Care about it on next iteration
+											(progn 
+												(setf (input-pos  stream) 0)
+												(setf (input-size stream) amount)
+												(repeat-not-wait)))
+										 (t 
+											(if (not (null output))
+													;; Return last cached data
+													(prog1
+															(babel:octets-to-string
+															 (apply #'concatenate
+																			(cons '(VECTOR
+																							(UNSIGNED-BYTE
+																							 8))
+																						(reverse output))))
+														(setf (input-size stream) 0
+																	(input-pos  stream) 0)
+														(setf output '()))
+													;; Time to return nil
+													nil))))))))
+			(repeat-not-wait))))
 
 (defmethod stream-force-output ((stream ssh-channel-stream))
 	(with-slots (channel output-buffer output-pos output-size) stream
@@ -989,11 +967,10 @@
 (defmethod stream-finish-output* ((stream ssh-channel-stream) &key (dont-send-eof nil))
 	(with-slots (socket channel output-buffer output-pos output-size) stream
 		(let ((amount 
-					 (repeat-and-wait-until-complete (socket)
-						 (channel-write channel
-														output-buffer
-														:start output-pos
-														:end   output-size))))
+					 (channel-write channel
+													output-buffer
+													:start output-pos
+													:end   output-size)))
 			
 			(incf output-pos amount)
 			(if (= output-pos
@@ -1002,8 +979,7 @@
 								output-size 0 ))
 			(if dont-send-eof
 					amount
-					(repeat-and-wait-until-complete (socket)
-						(channel-send-eof channel))))))
+					(channel-send-eof channel)))))
 
 (defmethod stream-finish-output ((stream ssh-channel-stream))						
 	(stream-finish-output* stream))
@@ -1024,11 +1000,10 @@
 	;; If string passed, then flush previous buffer if any
 	;; Then directly write this one
 	(stream-finish-output* stream :dont-send-eof t)
-	(repeat-and-wait-until-complete ((socket stream))
-		(channel-write-string (channel stream) 
-													sharable-sequence
-													:start start
-													:end   end)))
+	(channel-write-string (channel stream) 
+												sharable-sequence
+												:start start
+												:end   end))
 
 (defmethod stream-write-sequence ((stream ssh-channel-stream) sequence start end &key)
 	(with-slots (output-pos output-size output-buffer) stream
@@ -1061,27 +1036,22 @@
 				sequence))))
 				
 (defmethod close ((stream ssh-channel-stream) &key abort)
-	(let ((socket  (socket stream))
-				(channel (channel stream)))
+	(let ((channel (channel stream)))
 		(when (not (null-pointer-p channel))
 			(unless abort
 				(stream-force-output stream)
-				(repeat-and-wait-until-complete (socket)
-					(channel-flush channel)))
+				(channel-flush channel))
 			
-			(repeat-and-wait-until-complete (socket)
-				(channel-close channel))
+			(channel-close channel)
 			(channel-free channel))))
 
 (defmethod execute ((ssh ssh-connection) (command string))
 	(with-slots (socket session) ssh
 		(let ((new-channel 
-					 (repeat-and-wait-until-complete (socket)
-						 (channel-open session))))
+					 (channel-open session)))
 			(if (pointerp new-channel)
 					(if (not (null-pointer-p new-channel))
-							(let ((retval (repeat-and-wait-until-complete (socket)
-															(channel-exec new-channel command))))
+							(let ((retval (channel-exec new-channel command)))
 								(if (eq retval :ERROR-NONE)
 										(make-instance 'ssh-channel-stream
 																	 :socket  socket
