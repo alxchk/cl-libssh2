@@ -495,7 +495,6 @@
 			(if (null-pointer-p new-channel)
 					(session-last-errno session)
 					new-channel))))
-					
 
 (defcfun ("libssh2_channel_close" channel-close) +ERROR-CODE+
 	(channel +channel+))
@@ -615,6 +614,49 @@
 
 
 ;; CLOS FACADE: FOR BLOCKING STREAMS!! ;;
+
+;; From:
+;;  http://common-lisp.net/~loliveira/ediware/hunchentoot/set-timeouts.lisp
+(defun set-timeouts (usocket read-timeout write-timeout)
+  "Sets up timeouts on the given USOCKET object.  READ-TIMEOUT is the
+read timeout period, WRITE-TIMEOUT is the write timeout, specified in
+\(fractional) seconds.  The timeouts can either be implemented using
+the low-level socket options SO_RCVTIMEO and SO_SNDTIMEO or some
+other, implementation specific mechanism.  On platforms that do not
+support separate read and write timeouts, both must be equal or an
+error will be signaled.  READ-TIMEOUT and WRITE-TIMEOUT may be NIL,
+which means that the corresponding socket timeout value will not be
+set."
+  (declare (ignorable usocket read-timeout write-timeout))
+  ;; add other Lisps here if necessary
+  #+(or :sbcl :cmu)
+  (unless (eql read-timeout write-timeout)
+    (parameter-error "Read and write timeouts for socket must be equal."))
+  #+:clisp
+  (when read-timeout
+    (socket:socket-options (usocket:socket usocket) :SO-RCVTIMEO read-timeout))
+  #+:clisp
+  (when write-timeout
+    (socket:socket-options (usocket:socket usocket) :SO-SNDTIMEO write-timeout))
+  #+:openmcl
+  (when read-timeout
+    (setf (ccl:stream-input-timeout (usocket:socket usocket))
+          read-timeout))
+  #+:openmcl
+  (when write-timeout
+    (setf (ccl:stream-output-timeout (usocket:socket usocket))
+          write-timeout))
+  #+:sbcl
+  (when read-timeout
+    (setf (sb-impl::fd-stream-timeout (usocket:socket-stream usocket))
+          (coerce read-timeout 'single-float)))
+  #+:cmu
+  (setf (lisp::fd-stream-timeout (usocket:socket-stream usocket))
+        (coerce read-timeout 'integer))
+  #-(or :clisp :allegro :openmcl :sbcl :lispworks :cmu)
+  (not-implemented 'set-timeouts))
+
+
 (defclass auth-data ()
 	((login    :type      string
 					   :initarg   :login
@@ -667,7 +709,11 @@
 					 :accessor  hash
 					 :initarg   :hash)))
 
-(defmethod create-ssh-connection (host port (hosts-db string))
+(defmethod create-ssh-connection (host (hosts-db string) 
+																	&key 
+																	(port 22) 
+																	(read-timeout 500) 
+																	(write-timeout 500))
 	(let ((new-session nil)
 				(new-socket  nil)
 				(retval      :ERROR-NONE))
@@ -675,6 +721,7 @@
 				 (progn
 					 (setq new-session (session-init))
 					 (setq new-socket (usocket:socket-connect host port))
+					 (set-timeouts new-socket read-timeout write-timeout)
 					 (session-set-blocking new-session :BLOCKING)
 					 
 					 (setq retval 
