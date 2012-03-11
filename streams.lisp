@@ -1,6 +1,36 @@
 (in-package libssh2)
 
 ;; CLOS FACADE: FOR BLOCKING STREAMS!! ;;
+
+(defun  throw-last-error (session)
+	(multiple-value-bind (message code)
+			(session-last-error session)
+		(error 'ssh-generic-error 
+					 :message message
+					 :code    code)))
+	 
+(defmacro with-last-error ((session error-type) &rest args)
+	`(multiple-value-bind (message code)
+			 (session-last-error ,session)
+		 (error (quote ,error-type)
+						:message message
+						:code    code
+						,@args)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)	
+	(defvar *default-errors-list*
+		(remove :ERROR-NONE (foreign-enum-keyword-list '+ERROR-CODE+))))
+	
+(defvar *errors-list* *default-errors-list*)
+
+(defmacro result-or-error (session &body body)
+	`(let ((results (multiple-value-list (progn ,@body)))
+				 (throwable-errors *errors-list*))
+		 (if (find (car results)
+							 throwable-errors)
+				 (throw-last-error ,session)
+				 (values-list results))))
+
 (defclass auth-data ()
 	((login    :type      string
 					   :initarg   :login
@@ -28,21 +58,6 @@
 								:initform nil
 								:accessor auth-passed)))
 
-(defun  throw-last-error (session)
-	(multiple-value-bind (message code)
-			(session-last-error session)
-		(error 'ssh-generic-error 
-					 :message message
-					 :code    code)))
-	 
-(defmacro with-last-error ((session error-type) &rest args)
-	`(multiple-value-bind (message code)
-			 (session-last-error ,session)
-		 (error (quote ,error-type)
-						:message message
-						:code    code
-						,@args)))
-	
 (define-condition ssh-handshake-error (ssh-generic-error) ())
 
 (define-condition ssh-bad-hostkey (error)
@@ -56,8 +71,8 @@
 (defmethod create-ssh-connection (host (hosts-db string) 
 																	&key 
 																	(port 22) 
-																	(read-timeout 500) 
-																	(write-timeout 500))
+																	(read-timeout 5) 
+																	(write-timeout 5))
 	(let ((new-session nil)
 				(new-socket  nil)
 				(retval      :ERROR-NONE))
@@ -95,6 +110,13 @@
 		(progn
 			(usocket:socket-close (socket ssh))
 			(session-free (session ssh)))))
+
+(defmacro with-ssh-connection (session (&rest connection-args) &body body)
+	`(let ((,session (create-ssh-connection ,@connection-args)))
+		 (unwind-protect
+					(progn
+						,@body)
+			 (destroy-ssh-connection ,session))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
 	(session-hostkey (session ssh)))
@@ -141,11 +163,13 @@
 	(session-auth-methods-list (session ssh) login))
 
 (defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
-	(if (eq (auth-passed ssh) :ERROR-NONE)
+	(if (auth-passed ssh)
 			t
 			(if (ssh-verify-session ssh)
 					(setf (auth-passed ssh)
-								(call-next-method)))))
+								(eq
+								 (result-or-error (session ssh)
+									 (call-next-method)) :ERROR-NONE)))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
 	(user-auth-password (session  ssh)
@@ -163,7 +187,7 @@
 								:accessor private-key)
 	 (password    :type     string
 								:initarg  :password
-								:initform (null-pointer)
+								:initform ""
 								:accessor password)))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-publickey))
@@ -192,6 +216,29 @@
 						 (throw-last-error (session ssh)))
 			(when agent 
 				(agent-free agent)))))
+
+(defun make-publickey-auth (login directory private-key-name &optional (password ""))
+	(let ((private-key 
+				 (namestring (make-pathname :directory directory
+																		:name private-key-name)))
+				(public-key 
+				 (namestring (make-pathname :directory directory
+																		:name private-key-name
+																		:type "pub"))))
+		(make-instance 'auth-publickey 
+									 :login       login
+									 :public-key  public-key
+									 :private-key private-key
+									 :password    password)))
+
+(defun make-agent-login (login)
+	(make-instance 'auth-agent 
+								 :login login))
+
+(defun make-password-login (login password)
+	(make-instance 'auth-password 
+								 :login    login
+								 :password password))
 
 (defvar *ssh-channel-buffer-size* 1400)
 
@@ -452,7 +499,7 @@
 							(throw-last-error session))
 					(throw-last-error session)))))
 
-(defmacro with-execute ((stdio-stream ssh-connection command)
+(defmacro with-execute (command (ssh-connection stdio-stream)
 												&body body)
 	`(let ((,stdio-stream (execute ,ssh-connection ,command)))
 		 (unwind-protect
