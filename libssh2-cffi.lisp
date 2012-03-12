@@ -113,6 +113,13 @@
 (defcfun ("libssh2_agent_init" %agent-init) +ssh-agent+
 	(session +session+))
 
+(defmacro with-agent ((agent session) &body body)
+  `(let ((,agent (agent-init ,session)))
+     (unwind-protect
+          (progn ,@body)
+       (unless (null-pointer-p ,agent)
+         (agent-free ,agent)))))
+
 (defun agent-init (session)
 	(let ((agent (%agent-init session)))
 		(if (null-pointer-p agent)
@@ -435,7 +442,7 @@
 (defun channel-shell (channel cmd)
 	(channel-process-start channel "shell" cmd))
 
-(defun channel-subsysten (channel cmd)
+(defun channel-subsystem (channel cmd)
 	(channel-process-start channel "subsystem" cmd))
 
 (defcfun ("libssh2_channel_read_ex" %channel-read-ex) :int
