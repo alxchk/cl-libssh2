@@ -259,17 +259,19 @@
 		(if (null-pointer-p fp)
 				(result-or-error :UNKNOWN)
 				(with-foreign-string (fs-hostname hostname)
-					(if port
-							(%known-hosts-checkp known-hosts fs-hostname port 
-																	 fp
-																	 (key-size key)
-																	 (foreign-bitfield-value '+known-hosts-flags+ flags)
-																	 known-host)
-							(%known-hosts-check known-hosts fs-hostname
-																	fp
-																	(key-size key)
-																	(foreign-bitfield-value '+known-hosts-flags+ flags)
-																	known-host))))))
+          (with-foreign-object (hostinfo :pointer 1)
+            (setf (mem-aref hostinfo :pointer 0) known-host)
+            (if port
+                (%known-hosts-checkp known-hosts fs-hostname port 
+                                     fp
+                                     (key-size key)
+                                     (foreign-bitfield-value '+known-hosts-flags+ flags)
+                                     hostinfo)
+                (%known-hosts-check known-hosts fs-hostname
+                                    fp
+                                    (key-size key)
+                                    (foreign-bitfield-value '+known-hosts-flags+ flags)
+                                    hostinfo)))))))
 
 (define-condition known-hosts-reading-error (ssh-generic-error)
 	((file :type     string
