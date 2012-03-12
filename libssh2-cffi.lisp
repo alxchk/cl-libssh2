@@ -14,6 +14,7 @@
 						 collect (mem-aref addr :unsigned-char i))))
  
 (define-foreign-library libssh2
+  (:unix "libssh2.so.1")
 	(t (:default "libssh2")))
 
 (use-foreign-library libssh2)
