@@ -155,3 +155,16 @@
 (defmethod print-object ((sge ssh-generic-error) stream)
 	(format stream "Libssh2: ~a (~a)" (message sge) (code sge)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)	
+	(defvar *default-errors-list*
+		(cons :UNKNOWN
+		 (remove :ERROR-NONE 
+						 (foreign-enum-keyword-list '+ERROR-CODE+)))))
+	
+(defvar *errors-list* *default-errors-list*)
+
+(define-condition libssh2-invalid-error-code (error)
+	((code :type     keyword
+				 :accessor code
+				 :initarg  :code)))
+

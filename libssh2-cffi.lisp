@@ -1,5 +1,13 @@
 (in-package libssh2)
 
+(defmacro result-or-error (&body body)
+	`(let ((results (multiple-value-list (progn ,@body)))
+				 (throwable-errors *errors-list*))
+		 (if (find (car results)
+							 throwable-errors)
+				 (error 'libssh2-invalid-error-code :code (car results))
+				 (values-list results))))
+
 (defun print-memory (addr size)
 	(format t "~{~x ~}" 
 					(loop for i below size
@@ -10,15 +18,22 @@
 
 (use-foreign-library libssh2)
 				
-(defcfun ("libssh2_init" library-init) +ERROR-CODE+)
+(defcfun ("libssh2_init" %library-init) +ERROR-CODE+)
+(defun library-init ()
+	(result-or-error 
+		(%library-init)))
+
 (defcfun ("libssh2_exit" library-exit) :void)
 
 (defcfun ("libssh2_session_init_ex" session-init-ex) +session+
 	(alloc :pointer) (free :pointer) (realloc :pointer) (abstract :pointer))
-(defcfun ("libssh2_session_free" session-free) +ERROR-CODE+
+(defcfun ("libssh2_session_free" %session-free) +ERROR-CODE+
 	(session +session+))
+(defun session-free (session)
+	(result-or-error
+		(%session-free session)))
 
-(defcfun ("libssh2_session_last_error" --session-last-error) +ERROR-CODE+
+(defcfun ("libssh2_session_last_error" %session-last-error) +ERROR-CODE+
 	(session +session+) 
 	(error-message :pointer) (error-message-buffer-size :pointer)
 	(ownership :int))
@@ -26,10 +41,10 @@
 (defun session-last-error (session)
 	(with-foreign-objects ((fo-error-message-buffer-ptr   :pointer 1)
 												 (fo-error-message-buffer-size  :int     1))
-		(let ((retval (--session-last-error session 
-																				fo-error-message-buffer-ptr
-																				fo-error-message-buffer-size 
-																				0)))
+		(let ((retval (%session-last-error session 
+																			 fo-error-message-buffer-ptr
+																			 fo-error-message-buffer-size 
+																			 0)))
 			(let ((error-message-ptr  (mem-aref fo-error-message-buffer-ptr :pointer 0)))
 				(values-list (list (convert-from-foreign error-message-ptr :string)
 													 retval))))))
@@ -49,11 +64,13 @@
 																	(null-pointer)
 																	(null-pointer)
 																	(null-pointer))))
-		(session-set-blocking session :NON-BLOCKING)
-		session))
+		(if (null-pointer-p session)
+				(result-or-error :UNKNOWN)
+				(progn
+					(session-set-blocking session :NON-BLOCKING)
+					session))))
 
-
-(defcfun ("libssh2_session_disconnect_ex" --session-disconnect) +ERROR-CODE+
+(defcfun ("libssh2_session_disconnect_ex" %session-disconnect) +ERROR-CODE+
 	(session +session+) (reason +DISCONNECT-CODE+) (description :string) (lang :string))
 
 (defun session-disconnect (session &key
@@ -62,59 +79,77 @@
 													 (lang ""))
 	(with-foreign-strings ((fs-description description)
 												 (fs-lang        lang))
-		(--session-disconnect session reason fs-description fs-lang)))
+		(result-or-error
+			(%session-disconnect session reason fs-description fs-lang))))
 
 (defmacro with-session ( (session) &body body )
 	`(let ((,session (session-init)))
-		 (if (not (null-pointer-p ,session))
-				 (unwind-protect 
-							(progn
-								,@body)
-					 (session-free ,session))
-				 (error "Couldn't create session"))))
+		 (unwind-protect 
+					(progn
+						,@body)
+			 (session-free ,session))))
 
-(defcfun ("libssh2_session_handshake" session-handshake) +ERROR-CODE+
+(defcfun ("libssh2_session_handshake" %session-handshake) +ERROR-CODE+
 	(session +session+) (socket :int))
+(defun session-handshake (session socket)
+	(result-or-error
+		(%session-handshake session socket)))
 
-(defcfun ("libssh2_userauth_list" --session-auth-methods-list) :string
+(defcfun ("libssh2_userauth_list" %session-auth-methods-list) :string
 	(session +session+) (username :string) (username-length :unsigned-int))
 
 (defun session-auth-methods-list (session username)
 	(with-foreign-string ((fs-username fs-username-size) username)
-		(let ((result  (--session-auth-methods-list 
+		(let ((result  (%session-auth-methods-list 
 										session fs-username (- fs-username-size 1))))
 			(if result
 					(mapcar (lambda (item) (intern (string-upcase item) 'keyword))
 									(split-sequence:split-sequence 
 									 #\, result))
-					(session-last-errno session)))))
+					(result-or-error 
+						(session-last-errno session))))))
 
-(defcfun ("libssh2_agent_init" agent-init) +ssh-agent+
+(defcfun ("libssh2_agent_init" %agent-init) +ssh-agent+
 	(session +session+))
+
+(defun agent-init (session)
+	(let ((agent (%agent-init session)))
+		(if (null-pointer-p agent)
+				(result-or-error
+					(session-last-errno session)))))
 
 (defcfun ("libssh2_agent_free" agent-free) :void
 	(agent +ssh-agent+))
 
-(defcfun ("libssh2_agent_connect" agent-connect) +ERROR-CODE+
+(defcfun ("libssh2_agent_connect" %agent-connect) +ERROR-CODE+
 	(agent +ssh-agent+))
+(defun agent-connect (agent)
+	(result-or-error
+		(%agent-connect agent)))
 
-(defcfun ("libssh2_agent_disconnect" agent-disconnect) +ERROR-CODE+
+(defcfun ("libssh2_agent_disconnect" %agent-disconnect) +ERROR-CODE+
 	(agent +ssh-agent+))
+(defun agent-disconnect (agent)
+	(result-or-error 
+		(%agent-disconnect agent)))
 
-(defcfun ("libssh2_agent_list_identities" agent-list-identies) +ERROR-CODE+
+(defcfun ("libssh2_agent_list_identities" %agent-list-identies) +ERROR-CODE+
 	(agent +ssh-agent+))
+(defun agent-list-identies (agent)
+	(result-or-error 
+		(%agent-list-identies agent)))
 
-(defcfun ("libssh2_agent_get_identity" --agent-get-identity) +IDENTITY-AMOUNT+
+(defcfun ("libssh2_agent_get_identity" %agent-get-identity) +IDENTITY-AMOUNT+
 	(agent +ssh-agent+)
 	(store :pointer) (previous-public-key :pointer))
 
 (defun agent-identities-iterator (agent)
-	(when (eq (agent-list-identies agent) :ERROR-NONE)
+	(when (eq  (agent-list-identies agent) :ERROR-NONE)
 		(let ((agent agent)
 					(prev  (null-pointer)))
 			(lambda () 
 				(with-foreign-object (store :pointer)
-					(unless (eq (--agent-get-identity agent store prev)
+					(unless (eq (%agent-get-identity agent store prev)
 											:END)
 						(setf prev 
 									(mem-aref store :pointer 0))))))))
@@ -135,39 +170,47 @@
 											(process-next-identity)))))
 						 (process-next-identity))))))													
 
-(defcfun ("libssh2_knownhost_init" known-hosts-init) +known-hosts+
+(defcfun ("libssh2_knownhost_init" %known-hosts-init) +known-hosts+
 	(session +session+))
+(defun known-hosts-init (session)
+	(let ((known-hosts (%known-hosts-init session)))
+		(if (null-pointer-p known-hosts)
+				(result-or-error
+					(session-last-errno session))
+				known-hosts)))
 
 (defcfun ("libssh2_knownhost_free" known-hosts-free) :void
 	(known-hosts +known-hosts+))
 
-(defcfun ("libssh2_knownhost_readfile" --known-hosts-readfile) :int
+(defcfun ("libssh2_knownhost_readfile" %known-hosts-readfile) :int
 	(known-hosts +known-hosts+) (filename :string) (type :int))
 
-(defcfun ("libssh2_knownhost_writefile" --known-hosts-writefile) :int
+(defcfun ("libssh2_knownhost_writefile" %known-hosts-writefile) :int
 	(known-hosts +known-hosts+) (filename :string) (type :int))
 
 (defun known-hosts-readfile (hosts file)
 	(with-foreign-string (foreign-file file)
-		(let ((ret (--known-hosts-readfile hosts foreign-file 1)))
+		(let ((ret (%known-hosts-readfile hosts foreign-file 1)))
 			(if (>= ret 0)
 					(convert-from-foreign 0 '+ERROR-CODE+)
-					(convert-from-foreign ret '+ERROR-CODE+)))))
+					(result-or-error
+					 (convert-from-foreign ret '+ERROR-CODE+))))))
 
 (defun known-hosts-writefile (hosts file)
 	(with-foreign-string (foreign-file file)
-		(let ((ret (--known-hosts-writefile hosts foreign-file 1)))
+		(let ((ret (%known-hosts-writefile hosts foreign-file 1)))
 			(if (>= ret 0)
 					(convert-from-foreign 0 '+ERROR-CODE+)
-					(convert-from-foreign ret '+ERROR-CODE+)))))
+					(result-or-error
+						(convert-from-foreign ret '+ERROR-CODE+))))))
 
-(defcfun ("libssh2_session_hostkey" --session-hostkey)  +key+
+(defcfun ("libssh2_session_hostkey" %session-hostkey)  +key+
 	(session +session+) (len :pointer) (type :pointer))
 
 (defun session-hostkey (session)
 	(with-foreign-objects ((len :unsigned-int 1)
 												(type :int 1))
-		(let ((result (--session-hostkey session len type)))
+		(let ((result (%session-hostkey session len type)))
 			(make-key :data result 
 								:size (mem-aref len :long 0)
 								:type (mem-aref type :int 0)))))
@@ -181,12 +224,12 @@
 						(loop for i below (if (eq type :SHA1) 20 16)
 							 collect (mem-aref hash :unsigned-char i)))))
 
-(defcfun ("libssh2_knownhost_checkp" --known-hosts-checkp) +CHECK-VERDICT+
+(defcfun ("libssh2_knownhost_checkp" %known-hosts-checkp) +CHECK-VERDICT+
 	(known-hosts +known-hosts+) (hostname :string) (port :int)
 	(key +key+) (key-data-size :unsigned-int) 
 	(type :int)  (known-host :pointer))
 
-(defcfun ("libssh2_knownhost_check" --known-hosts-check) +CHECK-VERDICT+
+(defcfun ("libssh2_knownhost_check" %known-hosts-check) +CHECK-VERDICT+
 	(known-hosts +known-hosts+) (hostname :string)
 	(key +key+) (key-data-size :unsigned-int) 
 	(type :int)  (known-host :pointer))
@@ -197,19 +240,20 @@
 														(flags '(.type-plain. .raw.))
 														(known-host (null-pointer)))
 	(let ((fp (key-data key)))
-		(when (not (null-pointer-p fp))
-			(with-foreign-string (-hostname hostname)
-				(if port
-						(--known-hosts-checkp known-hosts -hostname port 
-															 fp
-															 (key-size key)
-															 (foreign-bitfield-value '+known-hosts-flags+ flags)
-															 known-host)
-						(--known-hosts-check known-hosts -hostname
-																 fp
-																 (key-size key)
-																 (foreign-bitfield-value '+known-hosts-flags+ flags)
-																 known-host))))))
+		(if (null-pointer-p fp)
+				(result-or-error :UNKNOWN)
+				(with-foreign-string (-hostname hostname)
+					(if port
+							(%known-hosts-checkp known-hosts -hostname port 
+																	 fp
+																	 (key-size key)
+																	 (foreign-bitfield-value '+known-hosts-flags+ flags)
+																	 known-host)
+							(%known-hosts-check known-hosts -hostname
+																	fp
+																	(key-size key)
+																	(foreign-bitfield-value '+known-hosts-flags+ flags)
+																	known-host))))))
 
 (define-condition known-hosts-reading-error (ssh-generic-error)
 	((file :type     string
@@ -220,7 +264,8 @@
 	(format stream "// ~a" (file khre)))
 
 (defmacro with-known-hosts ( ( known-hosts (session known-hosts-filename)) &body body )
-	`(let ((,known-hosts (known-hosts-init ,session)))
+	`(let ((,known-hosts (known-hosts-init ,session))
+				 (*errors-list* (remove :ERROR-FILE *default-errors-list*)))
 		 (unwind-protect
 					(if (and (not (null-pointer-p ,known-hosts))
 									 (eq (labels 
@@ -247,7 +292,7 @@
 			 (unless (null-pointer-p ,known-hosts)
 				 (known-hosts-free ,known-hosts)))))
 
-(defcfun ("libssh2_knownhost_addc" --known-hosts-add) +ERROR-CODE+
+(defcfun ("libssh2_knownhost_addc" %known-hosts-addc) +ERROR-CODE+
 	(known-hosts +known-hosts+) 
 	(host :string) (salt :string) (key :pointer) (key-length :unsigned-int)
 	(comment :string) (comment-length :unsigned-int)
@@ -265,21 +310,23 @@
 			(with-foreign-strings ((fs-host-full-string host-full-string)
 														 (fs-salt     salt)
 														 ((fs-comment fs-comment-size) comment))
-				(--known-hosts-add known-hosts 
-													 fs-host-full-string fs-salt
-													 (key-data key) (key-size key)
-													 fs-comment (- fs-comment-size 1)
-													 (foreign-bitfield-value '+known-hosts-flags+ flags)
-													 store))))
+				(result-or-error
+					(%known-hosts-addc known-hosts 
+														 fs-host-full-string fs-salt
+														 (key-data key) (key-size key)
+														 fs-comment (- fs-comment-size 1)
+														 (foreign-bitfield-value '+known-hosts-flags+ flags)
+														 store)))))
 													 
-(defcfun ("libssh2_agent_userauth" --agent-userauth) +ERROR-CODE+
+(defcfun ("libssh2_agent_userauth" %agent-userauth) +ERROR-CODE+
 	(agent +ssh-agent+) (username :string) (identity :pointer))
 
 (defun user-auth-agent (agent username identity)
 	(with-foreign-string (fs-username username)
-		(--agent-userauth agent fs-username identity)))
+		(result-or-error
+			(%agent-userauth agent fs-username identity))))
 
-(defcfun ("libssh2_userauth_password_ex" --user-auth-password) +ERROR-CODE+
+(defcfun ("libssh2_userauth_password_ex" %user-auth-password) +ERROR-CODE+
 	(session +session+) 
 	(username :string) (username-length :unsigned-int)
 	(password :string) (password-length :unsigned-int)
@@ -288,12 +335,13 @@
 (defun user-auth-password (session username password &optional (callback (null-pointer)))
 	(with-foreign-strings (((fs-username fs-username-size) username)
 												 ((fs-password fs-password-size) password))
-		(--user-auth-password session
-													fs-username (- fs-username-size 1)
-													fs-password (- fs-password-size 1)
-													callback)))
+		(result-or-error
+			(%user-auth-password session
+													 fs-username (- fs-username-size 1)
+													 fs-password (- fs-password-size 1)
+													 callback))))
 
-(defcfun ("libssh2_userauth_publickey_fromfile_ex" --user-auth-publickey) +ERROR-CODE+
+(defcfun ("libssh2_userauth_publickey_fromfile_ex" %user-auth-publickey) +ERROR-CODE+
 	(session +session+) 
 	(username :string) (username-len :unsigned-int)
 	(public-key :string) 
@@ -304,10 +352,11 @@
 												 (fs-public-key  public-key)
 												 (fs-private-key private-key)
 												 (fs-password    password))
-		(--user-auth-publickey session fs-username (- fs-username-size 1)
-													 fs-public-key fs-private-key fs-password)))
+		(result-or-error
+			(%user-auth-publickey session fs-username (- fs-username-size 1)
+														fs-public-key fs-private-key fs-password))))
 
-(defcfun ("libssh2_channel_open_ex" --channel-open-ex) +channel+
+(defcfun ("libssh2_channel_open_ex" %channel-open-ex) +channel+
 	(session +session+) (channel-type :string) (channel-type-length :unsigned-int)
 	(window-size :unsigned-int) (packet-size :unsigned-int) 
 	(message :string) (message-length :unsigned-int))
@@ -325,30 +374,40 @@
 																	0
 																	(- fs-message-size 1)))
 					 (new-channel 
-						(--channel-open-ex session 
-															 fs-channel-type (- fs-channel-type-size 1)
-															 window-size packet-size 
-															 pass-message
-															 pass-message-size)))
+						(%channel-open-ex session 
+															fs-channel-type (- fs-channel-type-size 1)
+															window-size packet-size 
+															pass-message
+															pass-message-size)))
 			(if (null-pointer-p new-channel)
-					(session-last-errno session)
+					(result-or-error 
+						(session-last-errno session))
 					new-channel))))
 
-(defcfun ("libssh2_channel_close" channel-close) +ERROR-CODE+
+(defcfun ("libssh2_channel_close" %channel-close) +ERROR-CODE+
 	(channel +channel+))
+(defun channel-close (channel)
+	(result-or-error
+		(%channel-close channel)))
 
-(defcfun ("libssh2_channel_free" channel-free) +ERROR-CODE+
+(defcfun ("libssh2_channel_free" %channel-free) +ERROR-CODE+
 	(channel +channel+))
+(defun channel-free (channel)
+	(result-or-error
+		(%channel-free channel)))
 
-(defcfun ("libssh2_channel_wait_closed" channel-wait-closed) +ERROR-CODE+
+(defcfun ("libssh2_channel_wait_closed" %channel-wait-closed) +ERROR-CODE+
 	(channel +channel+))
+(defun channel-wait-closed (channel)
+	(result-or-error
+		(%channel-wait-closed channel)))
 
-(defcfun ("libssh2_channel_process_startup" --channel-process-startup) +ERROR-CODE+
+(defcfun ("libssh2_channel_process_startup" %channel-process-startup) +ERROR-CODE+
 	(channel +channel+) 
 	(request :string) (request-length :unsigned-int)
 	(message :string) (message-length :unsigned-int))
 
-(defcfun ("libssh2_channel_setenv_ex" --channel-setenv-ex) +ERROR-CODE+
+(defcfun ("libssh2_channel_setenv_ex" %channel-setenv-ex) +ERROR-CODE+
 	(channel +channel+) 
 	(varname :string) (varname-len :int)
 	(value :string) (value-len :int))
@@ -356,17 +415,18 @@
 (defun channel-setenv (channel name value)
 	(with-foreign-strings (((fs-name  fs-name-size)  name)
 												 ((fs-value fs-value-size) value))
-		(--channel-setenv-ex channel 
-												 fs-name  (- fs-name-size 1)
-												 fs-value (- fs-value-size 1))))
+		(result-or-error
+			(%channel-setenv-ex channel 
+													fs-name  (- fs-name-size 1)
+													fs-value (- fs-value-size 1)))))
 
 (defun channel-process-start (channel request message)
 	(with-foreign-strings (((fs-request fs-request-size) request)
 												 ((fs-message fs-message-size) message))
-		(--channel-process-startup channel 
-															 fs-request (- fs-request-size 1)
-															 fs-message (- fs-message-size 1))))
-
+		(result-or-error
+			(%channel-process-startup channel 
+																fs-request (- fs-request-size 1)
+																fs-message (- fs-message-size 1)))))
 
 (defun channel-exec (channel cmd)
 	(channel-process-start channel "exec" cmd))
@@ -377,65 +437,61 @@
 (defun channel-subsysten (channel cmd)
 	(channel-process-start channel "subsystem" cmd))
 
-(defcfun ("libssh2_channel_read_ex" --channel-read-ex) :int
+(defcfun ("libssh2_channel_read_ex" %channel-read-ex) :int
 	(channel +CHANNEL+) (stream +STREAM-ID+)
 	(buffer :pointer) (buffer-length :unsigned-int))
 
-(defcfun ("libssh2_channel_flush_ex" --channel-flush-ex) :int
+(defcfun ("libssh2_channel_flush_ex" %channel-flush-ex) :int
 	(channel +CHANNEL+) (stream +STREAM-ID+))
 
 (defun channel-flush (channel)
-	(let ((ret (--channel-flush-ex channel :ALL)))
+	(let ((ret (%channel-flush-ex channel :ALL)))
 		(if (> ret 0)
 				:ERROR-NONE
-				(convert-from-foreign ret '+ERROR-CODE+))))
+				(result-or-error
+					(convert-from-foreign ret '+ERROR-CODE+)))))
 
 (defun channel-read (channel output-buffer &key (start 0) (end nil) (type :STDOUT))
 	(with-pointer-to-vector-data (buffer output-buffer)
-		(let ((ret (--channel-read-ex channel type
-																	(inc-pointer buffer start) 
-																	(if end 
-																			(- (min end (length output-buffer))
-																				 start)
-																			(- (length output-buffer)
-																				 start)))))
-			(values-list 
-			 (if (>= ret 0)
-					 (list
-						ret
-						(convert-from-foreign 0 '+ERROR-CODE+))
-					 (list
-						0
-						(convert-from-foreign ret '+ERROR-CODE+)))))))
+		(let ((ret (%channel-read-ex channel type
+																 (inc-pointer buffer start) 
+																 (if end 
+																		 (- (min end (length output-buffer))
+																				start)
+																		 (- (length output-buffer)
+																				start)))))
+			(if (>= ret 0)
+					ret
+					(result-or-error 
+						(convert-from-foreign ret '+ERROR-CODE+))))))
 
-(defcfun ("libssh2_channel_write_ex" --channel-write-ex) :int
+(defcfun ("libssh2_channel_write_ex" %channel-write-ex) :int
 	(channel +CHANNEL+) (stream +STREAM-ID+)
 	(buffer :pointer) (buffer-length :unsigned-int))
 
 (defmacro channel-write-with-conv (name conv)
 	`(defun ,name (channel data &key (start 0) (end nil) (type :STDOUT))
 		 (,conv (buffer data)
-						(let ((ret (--channel-write-ex channel type
-																					 (inc-pointer buffer start)
-																					 (if end
-																							 (- (min end (length data))
-																									start)
-																							 (- (length data)
-																									start)))))
-							(values-list
-							 (if (> ret 0)
-									 (list 
-										ret
-										(convert-from-foreign 0 '+ERROR-CODE+))
-									 (list
-										0
-										(convert-from-foreign ret '+ERROR-CODE+))))))))
+						(let ((ret (%channel-write-ex channel type
+																					(inc-pointer buffer start)
+																					(if end
+																							(- (min end (length data))
+																								 start)
+																							(- (length data)
+																								 start)))))
+							(if (>= ret 0)
+									ret
+									(result-or-error
+										(convert-from-foreign ret '+ERROR-CODE+)))))))
 
 (channel-write-with-conv channel-write with-pointer-to-vector-data)
 (channel-write-with-conv channel-write-string with-foreign-string)
 
-(defcfun ("libssh2_channel_send_eof" channel-send-eof) +ERROR-CODE+
+(defcfun ("libssh2_channel_send_eof" %channel-send-eof) +ERROR-CODE+
 	(channel +channel+))
+(defun channel-send-eof (channel)
+	(result-or-error 
+		(%channel-send-eof channel)))
 
 (defcfun ("libssh2_channel_get_exit_status" channel-exit-status) :int
 	(channel +channel+))

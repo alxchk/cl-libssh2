@@ -2,11 +2,6 @@
 
 ;; CLOS FACADE: FOR BLOCKING STREAMS!! ;;
 
-(define-condition libssh2-invalid-error-code (error)
-	((code :type     keyword
-				 :accessor code
-				 :initarg  :code)))
-
 (defun  throw-last-error (session)
 	(multiple-value-bind (message code)
 			(session-last-error session)
@@ -21,20 +16,6 @@
 						:message message
 						:code    code
 						,@args)))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)	
-	(defvar *default-errors-list*
-		(remove :ERROR-NONE (foreign-enum-keyword-list '+ERROR-CODE+))))
-	
-(defvar *errors-list* *default-errors-list*)
-
-(defmacro result-or-error (&body body)
-	`(let ((results (multiple-value-list (progn ,@body)))
-				 (throwable-errors *errors-list*))
-		 (if (find (car results)
-							 throwable-errors)
-				 (error 'libssh2-invalid-error-code :code (car results))
-				 (values-list results))))
 
 (defclass auth-data ()
 	((login    :type      string
@@ -176,8 +157,7 @@
 			(if (ssh-verify-session ssh)
 					(setf (auth-passed ssh)
 								(eq
-								 (result-or-error
-									 (call-next-method)) :ERROR-NONE)))))
+								 (call-next-method) :ERROR-NONE)))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
 	(user-auth-password (session  ssh)
