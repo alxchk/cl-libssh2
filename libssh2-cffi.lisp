@@ -24,6 +24,9 @@
 	(result-or-error 
 		(%library-init)))
 
+(defcfun ("libssh2_version" %library-version) :string
+  (required :int))
+
 (defcfun ("libssh2_exit" library-exit) :void)
 
 (defcfun ("libssh2_session_init_ex" session-init-ex) +session+
@@ -90,11 +93,15 @@
 						,@body)
 			 (session-free ,session))))
 
-(defcfun ("libssh2_session_handshake" %session-handshake) +ERROR-CODE+
-	(session +session+) (socket :int))
+(if (foreign-symbol-pointer "libssh2_session_handshake")
+    (defcfun ("libssh2_session_handshake" %session-handshake) +ERROR-CODE+
+      (session +session+) (socket :int))
+    (defcfun ("libssh2_session_startup" %session-handshake) +ERROR-CODE+
+      (session +session+) (socket :int)))
+
 (defun session-handshake (session socket)
 	(result-or-error
-		(%session-handshake session socket)))
+    (%session-handshake session socket)))
 
 (defcfun ("libssh2_userauth_list" %session-auth-methods-list) :string
 	(session +session+) (username :string) (username-length :unsigned-int))
@@ -250,14 +257,14 @@
 	(let ((fp (key-data key)))
 		(if (null-pointer-p fp)
 				(result-or-error :UNKNOWN)
-				(with-foreign-string (-hostname hostname)
+				(with-foreign-string (fs-hostname hostname)
 					(if port
-							(%known-hosts-checkp known-hosts -hostname port 
+							(%known-hosts-checkp known-hosts fs-hostname port 
 																	 fp
 																	 (key-size key)
 																	 (foreign-bitfield-value '+known-hosts-flags+ flags)
 																	 known-host)
-							(%known-hosts-check known-hosts -hostname
+							(%known-hosts-check known-hosts fs-hostname
 																	fp
 																	(key-size key)
 																	(foreign-bitfield-value '+known-hosts-flags+ flags)
