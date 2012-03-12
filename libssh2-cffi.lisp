@@ -131,7 +131,8 @@
 	(let ((agent (%agent-init session)))
 		(if (null-pointer-p agent)
 				(result-or-error
-					(session-last-errno session)))))
+					(session-last-errno session))
+				agent)))
 
 (defcfun ("libssh2_agent_free" agent-free) :void
 	(agent +ssh-agent+))

@@ -1,6 +1,6 @@
 (in-package libssh2)
 
-;; CLOS FACADE: FOR BLOCKING STREAMS!! ;;
+;; clos facade: for blocking streams!! ;;
 
 (defun  throw-last-error (session)
 	(multiple-value-bind (message code)
@@ -47,7 +47,7 @@
 (define-condition ssh-handshake-error (ssh-generic-error) ())
 
 (define-condition ssh-bad-hostkey (error)
-	((reason :type      +CHECK-VERDICT+
+	((reason :type      +check-verdict+
 					 :accessor  reason
 					 :initarg   :reason)
 	 (hash   :type      string
@@ -61,18 +61,18 @@
 																	(write-timeout 5))
 	(let ((new-session nil)
 				(new-socket  nil)
-				(retval      :ERROR-NONE))
+				(retval      :error-none))
 		(unwind-protect 
 				 (progn
 					 (setq new-session (session-init))
 					 (setq new-socket (usocket:socket-connect host port))
 					 (set-timeouts new-socket read-timeout write-timeout)
-					 (session-set-blocking new-session :BLOCKING)
+					 (session-set-blocking new-session :blocking)
 					 
 					 (setq retval 
 								 (session-handshake new-session (usocket-get-fd new-socket)))
 					 
-					 (if (eq retval :ERROR-NONE)
+					 (if (eq retval :error-none)
 							 (make-instance 'ssh-connection
 															:session  new-session
 															:socket   new-socket
@@ -80,7 +80,7 @@
 															:port     port
 															:hosts-db hosts-db)
 							 (throw-last-error new-session)))
-			(unless (eq retval :ERROR-NONE)
+			(unless (eq retval :error-none)
 				(unless (null-pointer-p new-session)
 					(session-free new-session))
 				(unless (null new-socket)
@@ -128,7 +128,7 @@
 																							 (host ssh)
 																							 host-key
 																							 :port (port ssh))))
-			(if (eq host-key-status :MATCH)
+			(if (eq host-key-status :match)
 					t
 					(restart-case 
 							(error 'ssh-bad-hostkey 
@@ -157,7 +157,7 @@
 			(if (ssh-verify-session ssh)
 					(setf (auth-passed ssh)
 								(eq
-								 (call-next-method) :ERROR-NONE)))))
+								 (call-next-method) :error-none)))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
 	(user-auth-password (session  ssh)
@@ -191,14 +191,14 @@
 		(unwind-protect
 				 (if (and agent
 									(eq (agent-connect agent)
-											:ERROR-NONE))
+											:error-none))
 						 (let ((next-identity (agent-identities-iterator agent)))
 							 (when next-identity
 								 (with-foreign-string (fs-username username)
 									 (loop for identity = (funcall next-identity)
 											while identity do
 												(if (eq
-														 (--agent-userauth agent fs-username identity)
+														 (%agent-userauth agent fs-username identity)
 														 :ERROR-NONE)
 														(return t))))))
 						 (throw-last-error (session ssh)))
@@ -219,11 +219,11 @@
 									 :private-key private-key
 									 :password    password)))
 
-(defun make-agent-login (login)
+(defun make-agent-auth (login)
 	(make-instance 'auth-agent 
 								 :login login))
 
-(defun make-password-login (login password)
+(defun make-password-auth (login password)
 	(make-instance 'auth-password 
 								 :login    login
 								 :password password))
@@ -380,11 +380,13 @@
 
 (defmethod stream-force-output ((stream ssh-channel-stream))
 	(with-slots (channel output-buffer output-pos output-size) stream
-		(let ((amount (channel-write channel
-																 output-buffer
-																 :start output-pos
-																 :end   output-size)))
-			(incf output-pos amount)
+		(let ((amount 0))
+			(when (> output-size 0)
+				(setq amount (channel-write channel
+																		output-buffer
+																		:start output-pos
+																		:end   output-size))
+				(incf output-pos amount))
 			(if (= output-pos
 						 output-size)
 					(setf output-pos  0
@@ -393,17 +395,19 @@
 							
 (defmethod stream-finish-output* ((stream ssh-channel-stream) &key (dont-send-eof nil))
 	(with-slots (socket channel output-buffer output-pos output-size) stream
-		(let ((amount 
-					 (channel-write channel
-													output-buffer
-													:start output-pos
-													:end   output-size)))
-			
-			(incf output-pos amount)
-			(if (= output-pos
-						 output-size)
-					(setf output-pos  0
-								output-size 0 ))
+		(let ((amount 0))
+			(when (> output-size 0)
+				(setq amount
+							(channel-write channel
+														 output-buffer
+														 :start output-pos
+														 :end   output-size))
+				(incf output-pos amount)
+				(if (= output-pos
+							 output-size)
+						(setf output-pos  0
+									output-size 0 )))
+
 			(if dont-send-eof
 					amount
 					(channel-send-eof channel)))))
