@@ -90,6 +90,10 @@
 	(:MORE 0)
 	(:END  1))
 
+(defcenum +CHANNEL-EOF+
+	(:NOT-EOF 0)
+	(:EOF     1))
+
 (defcenum +STREAM-ID+
 	(:STDOUT    0)
 	(:STDERR    1)

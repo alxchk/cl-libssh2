@@ -9,8 +9,6 @@
 				 (gid     "st_gid"     :type :unsigned-int)
 				 (rdev    "st_rdev"    :type :unsigned-int)
 				 (size    "st_size"    :type :unsigned-int)
-				 (blksize "st_blksize" :type :unsigned-int)
-				 (blocks  "st_blocks"  :type :unsigned-int)
 				 (atime   "st_atime"   :type :unsigned-int)
 				 (mtime   "st_mtime"   :type :unsigned-int)
 				 (ctime   "st_ctime"   :type :unsigned-int))
