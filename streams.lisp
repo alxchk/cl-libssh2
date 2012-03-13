@@ -451,8 +451,8 @@
 (defmethod stream-finish-output ((stream ssh-channel-stream-output))
   (stream-finish-output* stream))
 
-(defmethod stream-finish-output ((stream ssh-channel-stream-io))
-  (stream-finish-output* stream))
+(defmethod stream-finish-output ((stream ssh-channel-stream))
+  0)
 
 (defmethod stream-write-byte ((stream ssh-channel-stream-output) byte)
   (with-slots (output-pos output-size output-buffer) stream
