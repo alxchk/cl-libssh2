@@ -273,15 +273,7 @@
 
 (defmethod stream-element-type ((stream ssh-channel-stream-input))
   (declare (ignore stream))
-  '(or (unsigned-byte 8) character))
-
-;; (defmethod stream-element-type ((stream ssh-channel-stream-output))
-;;  (declare (ignore stream))
-;;  '(or (unsigned-byte 8) character))
-
-;; (defmethod stream-element-type ((stream ssh-channel-stream-io))
-;;  (declare (ignore stream))
-;;  '(or (unsigned-byte 8) character))
+  '(unsigned-byte 8))
 
 (defmethod open-stream-p ((stream ssh-channel-stream))
   (not (null-pointer-p (channel stream))))
