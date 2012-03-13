@@ -271,7 +271,7 @@
 	 ssh-channel-stream-output)
   ())
 
-(defmethod stream-element-type ((stream ssh-channel-stream-input))
+(defmethod stream-element-type ((stream ssh-channel-stream))
   (declare (ignore stream))
   '(unsigned-byte 8))
 
