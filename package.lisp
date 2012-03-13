@@ -47,8 +47,10 @@
    #:channel-read
    #:channel-write
    #:channel-write-string
+   #:channel-eofp
    #:channel-send-eof
    #:channel-exit-status
+   #:channel-scp-recv
 
    ;; STREAMS API // BLOCKING
 
@@ -103,6 +105,9 @@
    #:CLOSE
    #:EXECUTE
    #:WITH-EXECUTE
+   #:WITH-EXECUTE*
+   #:SCP-INPUT
+   #:WITH-SCP-INPUT
 
    ;; CONDITIONS & SLOTS
    #:KNOWN-HOSTS-READING-ERROR
@@ -127,5 +132,9 @@
    #:SSH-GENERIC-ERROR
    #:MESSAGE
    #:CODE #:FILE
+
+   ;; Dynamic customizations
+   #:*CHANNEL-READ-TYPE*
+   #:*CHANNEL-READ-ZERO-AS-EOF*
    #:*ERRORS-LIST*
    #:*DEFAULT-ERRORS-LIST*))

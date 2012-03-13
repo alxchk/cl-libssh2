@@ -470,7 +470,9 @@
         (result-or-error
           (convert-from-foreign ret '+ERROR-CODE+)))))
 
-(defun channel-read (channel output-buffer &key (start 0) (end nil) (type :STDOUT))
+(defvar *channel-read-type* :STDOUT)
+(defvar *channel-read-zero-as-eof* nil)
+(defun channel-read (channel output-buffer &key (start 0) (end nil) (type *channel-read-type*))
   (with-pointer-to-vector-data (buffer output-buffer)
     (let ((ret (%channel-read-ex channel type
                                  (inc-pointer buffer start)
@@ -482,8 +484,10 @@
       (if (>= ret 0)
           (values
            ret
-           (if (= ret 0)
-               (channel-eofp channel)))
+           (cond 
+			 ((and (= ret 0) *channel-read-zero-as-eof*) t)
+			 ((= ret 0)      (channel-eofp channel))
+			 (t nil)))
           (result-or-error
             (convert-from-foreign ret '+ERROR-CODE+))))))
 
@@ -492,7 +496,7 @@
   (buffer :pointer) (buffer-length :unsigned-int))
 
 (defmacro channel-write-with-conv (name conv)
-  `(defun ,name (channel data &key (start 0) (end nil) (type :STDOUT))
+  `(defun ,name (channel data &key (start 0) (end nil) (type *channel-read-type*))
      (,conv (buffer data)
             (let ((ret (%channel-write-ex channel type
                                           (inc-pointer buffer start)
@@ -529,7 +533,7 @@
 (defcfun ("libssh2_scp_recv" %scp-recv) +channel+
   (session +session+) (path :string) (stat +stat+))
 
-(defun scp-recv (session path)
+(defun channel-scp-recv (session path)
   (with-foreign-string (fs-path path)
     (with-foreign-object (stat '+stat+ 1)
       (let ((result (%scp-recv session path stat)))
