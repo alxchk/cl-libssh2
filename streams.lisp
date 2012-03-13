@@ -90,48 +90,48 @@
 
 (defmethod destroy-ssh-connection ((ssh ssh-connection) &key (description "") (lang ""))
   (unwind-protect
-	   (session-disconnect (session ssh)
-						   :description description
-						   :lang   lang)
-	(progn
-	  (usocket:socket-close (socket ssh))
-	  (session-free (session ssh)))))
+       (session-disconnect (session ssh)
+                           :description description
+                           :lang   lang)
+    (progn
+      (usocket:socket-close (socket ssh))
+      (session-free (session ssh)))))
 
 (defmacro with-ssh-connection (session (&rest connection-args) &body body)
   `(let ((,session (create-ssh-connection ,@connection-args)))
-	 (unwind-protect
-		  (handler-bind ((libssh2-invalid-error-code
-						  (lambda (condition)
-							(declare (ignore condition))
-							(throw-last-error (session ,session)))))
-			,@body)
-	   (destroy-ssh-connection ,session))))
+     (unwind-protect
+          (handler-bind ((libssh2-invalid-error-code
+                          (lambda (condition)
+                            (declare (ignore condition))
+                            (throw-last-error (session ,session)))))
+            ,@body)
+       (destroy-ssh-connection ,session))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
   (session-hostkey (session ssh)))
 
 (defmethod ssh-host+port-format ((ssh ssh-connection))
   (format nil "[~a]:~a"
-		  (host ssh)
-		  (port ssh)))
+          (host ssh)
+          (port ssh)))
 
 (defclass auth-password (auth-data)
   ((password :type      string
-			 :initarg   :password
-			 :initform  ""
-			 :reader    password)))
+             :initarg   :password
+             :initform  ""
+             :reader    password)))
 
 (defmethod ssh-verify-session ((ssh ssh-connection))
   (with-known-hosts (known-hosts ((session ssh) (hosts-db ssh)))
-	(let* ((host-key        (ssh-session-key ssh))
-		   (host-key-status (known-hosts-check known-hosts
-											   (host ssh)
-											   host-key
-											   :port (port ssh))))
-	  (if (eq host-key-status :match)
-		  t
-		  (restart-case
-			  (error 'ssh-bad-hostkey
+    (let* ((host-key        (ssh-session-key ssh))
+           (host-key-status (known-hosts-check known-hosts
+                                               (host ssh)
+                                               host-key
+                                               :port (port ssh))))
+      (if (eq host-key-status :match)
+          t
+          (restart-case
+              (error 'ssh-bad-hostkey
 					 :reason host-key-status
 					 :key (session-hostkey-fingerprint (session ssh)))
 			(accept () t)
@@ -239,9 +239,7 @@
 				  :accessor channel)))
 
 (defclass ssh-channel-stream-output
-	(ssh-channel-stream
-	 fundamental-binary-output-stream
-	 fundamental-character-output-stream)
+	(ssh-channel-stream)
   ((output-buffer :initform (make-shareable-byte-vector
 							 *ssh-channel-buffer-size*)
 				  :accessor output-buffer)
@@ -253,9 +251,7 @@
 				  :accessor output-pos)))
 
 (defclass ssh-channel-stream-input
-	(ssh-channel-stream
-	 fundamental-binary-input-stream
-	 fundamental-character-input-stream)
+	(ssh-channel-stream)
   ((input-buffer  :initform (make-shareable-byte-vector
 							 *ssh-channel-buffer-size*)
 				  :accessor input-buffer)
@@ -266,9 +262,27 @@
 				  :initform 0
 				  :accessor input-pos)))
 
-(defclass ssh-channel-stream-io
+(defclass ssh-channel-stream-input/output
 	(ssh-channel-stream-input
 	 ssh-channel-stream-output)
+  ())
+
+(defclass ssh-channel-exec
+	(ssh-channel-stream-input/output
+	 fundamental-binary-output-stream
+	 fundamental-character-output-stream
+	 fundamental-binary-input-stream
+	 fundamental-character-input-stream)
+  ())
+
+(defclass ssh-channel-recv
+	(ssh-channel-stream-input
+	 fundamental-binary-input-stream)
+  ())
+
+(defclass ssh-channel-send
+	(ssh-channel-stream-output
+	 fundamental-binary-output-stream)
   ())
 
 (defmethod stream-element-type ((stream ssh-channel-stream))
@@ -295,6 +309,16 @@
 				 (setf (input-pos   stream)  1)
 				 (setf (input-size  stream)  amount)
 				 (elt  (input-buffer stream) 0))))))))
+
+;; Looks like libssh2 sends 0 byte as EOF. Crazy shit :]
+(defmethod stream-read-sequence ((stream ssh-channel-recv) thing start end &key)
+  (multiple-value-bind (start eof)
+	  (call-next-method)
+	(values
+	 (- start (if (and (> start 0)
+					   eof)
+				  1 0))
+	 eof)))
 
 (defmethod stream-read-sequence ((stream ssh-channel-stream-input) thing start end &key)
   (let ((request-size (- end start)))
@@ -327,7 +351,9 @@
 		(buffer-to-output)
 		(when (> request-size 0)
 		  (fill-buffer-and-output))
-		start))))
+		(values
+		 start
+		 (channel-eofp channel))))))
 
 (defmethod stream-read-line ((stream ssh-channel-stream-input))
   (let ((output '()))
@@ -461,7 +487,7 @@
 					   max-output-buffer)
 				   (stream-finish-output* stream :dont-send-eof t))
 
-			   (when (< (+ output-size pushable-chunk-size)
+			   (when (<= (+ output-size pushable-chunk-size)
 						max-output-buffer)
 				 (progn
 				   (replace output-buffer sequence
@@ -497,7 +523,7 @@
 		  (if (not (null-pointer-p new-channel))
 			  (let ((retval (channel-exec new-channel command)))
 				(if (eq retval :ERROR-NONE)
-					(make-instance 'ssh-channel-stream-io
+					(make-instance 'ssh-channel-exec
 								   :socket  socket
 								   :channel new-channel)
 					(throw-last-error session)))
@@ -509,10 +535,22 @@
 	  (channel-scp-recv (session ssh) path)
 	(unless (null-pointer-p new-channel)
 	  (values
-	   (make-instance 'ssh-channel-stream-input
+	   (make-instance 'ssh-channel-recv
 					  :socket  (socket ssh)
 					  :channel new-channel)
 	   stat))))
+
+(defmethod scp-output ((ssh ssh-connection) (path string) size
+					   &key mode mtime atime)
+  (let ((new-channel
+		 (channel-scp-send (session ssh) path size
+						   :mode  mode
+						   :mtime mtime
+						   :atime atime)))
+	(unless (null-pointer-p new-channel)
+	  (make-instance 'ssh-channel-send
+					 :socket  (socket ssh)
+					 :channel new-channel))))
 
 (defmacro with-execute (command (ssh-connection stdio-stream)
 						&body body)
@@ -521,7 +559,7 @@
 		  (let ((body-retval
 				 (progn ,@body)))
 			(values-list
-             (list body-retval
+			 (list body-retval
 				   (channel-exit-status (channel ,stdio-stream)))))
 	   (close ,stdio-stream))))
 
@@ -533,12 +571,21 @@
 	 (progn (stream-finish-output ,stdio-stream)
 			,@body)))
 
-(defmacro with-scp-input (path (ssh-connection stdio-stream object-stat)
+(defmacro with-scp-input (path (ssh-connection istream object-stat)
 						  &body body)
-  `(multiple-value-bind (,stdio-stream ,object-stat)
+  `(multiple-value-bind (,istream ,object-stat)
 	   (scp-input ,ssh-connection ,path)
 	 (declare (ignore ,object-stat))
 	 (unwind-protect
 		  (progn
 			,@body)
-	   (close ,stdio-stream))))
+	   (close ,istream))))
+
+(defmacro with-scp-output (path size (ssh-connection ostream &key
+									  mtime atime mode) &body body)
+  `(let ((,ostream (scp-output ,ssh-connection ,path ,size
+							   :mode ,mode :atime ,atime, :mtime ,mtime)))
+	 (unwind-protect
+		  (progn
+			,@body)
+	   (close ,ostream))))

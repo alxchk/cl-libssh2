@@ -1,7 +1,7 @@
 (defpackage libssh2
   (:use :cffi
-        :cl :cl-user
-        :trivial-gray-streams)
+		:cl :cl-user
+		:trivial-gray-streams)
   (:export
    ;; LIBSSH2 API
    #:with-session
@@ -83,6 +83,12 @@
    #:MAKE-AGENT-AUTH
    #:MAKE-PASSWORD-AUTH
    #:SSH-CHANNEL-STREAM
+   #:SSH-CHANNEL-STREAM-OUTPUT
+   #:SSH-CHANNEL-STREAM-INPUT
+   #:SSH-CHANNEL-STREAM-INPUT/OUTPUT
+   #:SSH-CHANNEL-EXEC
+   #:SSH-CHANNEL-RECV
+   #:SSH-CHANNEL-SEND
    #:CHANNEL
    #:INPUT-BUFFER
    #:INPUT-SIZE
@@ -104,10 +110,12 @@
    #:STREAM-WRITE-SEQUENCE
    #:CLOSE
    #:EXECUTE
+   #:SCP-INPUT
+   #:SCP-OUTPUT
    #:WITH-EXECUTE
    #:WITH-EXECUTE*
-   #:SCP-INPUT
    #:WITH-SCP-INPUT
+   #:WITH-SCP-OUTPUT
 
    ;; CONDITIONS & SLOTS
    #:KNOWN-HOSTS-READING-ERROR
