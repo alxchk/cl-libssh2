@@ -156,13 +156,13 @@
     t
     (if (ssh-verify-session ssh)
       (setf (auth-passed ssh)
-        (eq
-         (call-next-method) :error-none)))))
+            (call-next-method)))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
-  (user-auth-password (session  ssh)
-            (login    auth)
-            (password auth)))
+  (eq (user-auth-password (session  ssh)
+                          (login    auth)
+                          (password auth))
+      :ERROR-NONE))
 
 (defclass auth-publickey (auth-data)
   ((public-key  :type     string
@@ -180,30 +180,30 @@
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-publickey))
   (with-slots (login public-key private-key password) auth
-  (user-auth-publickey (session ssh)
-             login public-key private-key password)))
+    (eq (user-auth-publickey (session ssh)
+                             login public-key private-key password)
+        :ERROR-NONE)))
 
 (defclass auth-agent (auth-data) ())
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-agent))
   (let ((agent (agent-init (session ssh)))
-    (username (login auth)))
+        (username (login auth)))
   (unwind-protect
-     (if (and agent
-          (eq (agent-connect agent)
-            :error-none))
-       (let ((next-identity (agent-identities-iterator agent)))
-         (when next-identity
-         (with-foreign-string (fs-username username)
-           (loop for identity = (funcall next-identity)
-            while identity do
-            (if (eq
-               (%agent-userauth agent fs-username identity)
-               :ERROR-NONE)
-              (return t))))))
-       (throw-last-error (session ssh)))
+       (if (and agent (eq (agent-connect agent)
+                          :ERROR-NONE))
+           (let ((next-identity (agent-identities-iterator agent)))
+             (when next-identity
+               (with-foreign-string (fs-username username)
+                 (loop for identity = (funcall next-identity)
+                    while identity do
+                      (if (eq
+                           (%agent-userauth agent fs-username identity)
+                           :ERROR-NONE)
+                          (return t))))))
+           (throw-last-error (session ssh)))
     (when agent
-    (agent-free agent)))))
+      (agent-free agent)))))
 
 (defun make-publickey-auth (login directory private-key-name &optional (password ""))
   (let ((private-key
