@@ -54,8 +54,9 @@
            :accessor  hash
            :initarg   :hash)))
 
-(defmethod create-ssh-connection (host (hosts-db string)
+(defmethod create-ssh-connection (host
                   &key
+                  (hosts-db (default-known-hosts))
                   (port 22)
                   (read-timeout 5)
                   (write-timeout 5))

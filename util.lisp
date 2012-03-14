@@ -43,6 +43,21 @@ set."
 
 
 (defun usocket-get-fd (uso)
-	(slot-value (usocket:socket uso) 'sb-bsd-sockets::file-descriptor))
+  (slot-value (usocket:socket uso) 'sb-bsd-sockets::file-descriptor))
 
+(defun default-config-directory ()
+  (if (boundp '*config-directory*)
+      *config-directory*
+      (namestring (merge-pathnames ".ssh/" (user-homedir-pathname)))))
 
+(defun default-known-hosts ()
+  (namestring (merge-pathnames "known_hosts"
+                               (default-config-directory))))
+
+(defun default-private-key ()
+    (namestring (merge-pathnames "id_rsa"
+                                 (default-config-directory))))
+
+(defun default-public-key ()
+    (namestring (merge-pathnames "id_rsa.pub"
+                                 (default-config-directory))))
