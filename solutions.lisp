@@ -44,8 +44,10 @@
                                                 (car key) (if (cdr key)
                                                               (cdr key) ""))))
                                       collect it)))
-                 (when (and passwords
-                            (listp passwords))
-                   (loop for password in passwords
-                      collect (make-password-auth login
-                                                  password))))))))
+                  (list
+                   (when (and passwords
+                              (listp passwords))
+                     (loop for password in passwords
+                        collect (make-password-auth login
+                                                    password)))))))))
+
