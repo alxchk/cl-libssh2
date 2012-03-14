@@ -100,14 +100,15 @@
       (usocket:socket-close (socket ssh))
       (session-free (session ssh)))))
 
-(defmacro with-ssh-connection (session (&rest connection-args) &body body)
-  `(let ((,session (create-ssh-connection ,@connection-args)))
+(defmacro with-ssh-connection (session (host auth &rest connection-args) &body body)
+  `(let ((,session (create-ssh-connection ,host ,@connection-args)))
      (unwind-protect
           (handler-bind ((libssh2-invalid-error-code
                           (lambda (condition)
                             (declare (ignore condition))
                             (throw-last-error (session ,session)))))
-            ,@body)
+            (when (authentication ,session ,auth)
+              ,@body))
        (destroy-ssh-connection ,session))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
