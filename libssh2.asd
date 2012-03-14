@@ -1,3 +1,5 @@
+;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+
 (in-package :asdf)
 
 (cl:eval-when (:load-toplevel :execute)

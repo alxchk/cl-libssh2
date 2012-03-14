@@ -1,3 +1,5 @@
+;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+
 (in-package libssh2)
 
 ;; clos facade: for blocking streams!! ;;

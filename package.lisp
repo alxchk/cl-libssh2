@@ -1,3 +1,5 @@
+;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+
 (defpackage libssh2
   (:use :cffi
 		:cl :cl-user

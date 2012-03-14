@@ -1,4 +1,7 @@
+;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+
 (in-package :libssh2)
+
 (include "sys/types.h" "sys/stat.h")
 (cstruct +stat+   "struct stat"
 				 (dev     "st_dev"     :type :unsigned-int)

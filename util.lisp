@@ -1,3 +1,5 @@
+;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+
 (in-package libssh2)
 
 ;; From:
@@ -55,9 +57,9 @@ set."
                                (default-config-directory))))
 
 (defun default-private-key ()
-    (namestring (merge-pathnames "id_rsa"
-                                 (default-config-directory))))
+  (namestring (merge-pathnames "id_rsa"
+                               (default-config-directory))))
 
 (defun default-public-key ()
-    (namestring (merge-pathnames "id_rsa.pub"
-                                 (default-config-directory))))
+  (namestring (merge-pathnames "id_rsa.pub"
+                               (default-config-directory))))
