@@ -8,7 +8,7 @@
     (libssh2:with-scp-input (in sshc remote/local stat)
       (with-open-file (out local/remote
                            :direction :output
-                           :if-exists :overwrite
+                           :if-exists :supersede
                            :if-does-not-exist :create
                            :element-type stream/type)
         (cl-fad:copy-stream in out)))
@@ -25,4 +25,3 @@
                                             local/remote))
       (loop for line = (read-line in nil)
          while line do (print line)))))
-

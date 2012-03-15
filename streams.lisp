@@ -318,15 +318,16 @@
 ;; Looks like libssh2 sends 0 byte as EOF. Crazy shit :]
 (defmethod stream-read-sequence ((stream ssh-channel-recv) thing start end &key)
   (multiple-value-bind (start eof)
-    (call-next-method)
-  (values
-   (- start (if (and (> start 0)
-             eof)
-          1 0))
-   eof)))
+      (call-next-method)
+    (values
+     (- start (if (and (> start 0)
+                       eof)
+                  1 0))
+     eof)))
 
 (defmethod stream-read-sequence ((stream ssh-channel-stream-input) thing start end &key)
-  (let ((request-size (- end start)))
+  (let ((request-size (- end start))
+        (this-eof     nil))
   (with-slots (channel input-size input-buffer input-pos) stream
     (labels
       ((buffer-to-output ()
@@ -351,14 +352,15 @@
 
          (buffer-to-output)
          (unless (or (= request-size 0) eof)
-         (fill-buffer-and-output)))))
+           (fill-buffer-and-output))
+         (when eof (setq this-eof t)))))
 
     (buffer-to-output)
     (when (> request-size 0)
       (fill-buffer-and-output))
     (values
      start
-     (channel-eofp channel))))))
+     this-eof)))))
 
 (defmethod stream-read-line ((stream ssh-channel-stream-input))
   (let ((output '()))
