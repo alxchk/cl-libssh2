@@ -1,3 +1,4 @@
+
 ;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
 
 (in-package libssh2)
@@ -100,14 +101,14 @@
       (usocket:socket-close (socket ssh))
       (session-free (session ssh)))))
 
-(defmacro with-ssh-connection (session (host auth &rest connection-args) &body body)
+(defmacro with-ssh-connection (session (host auth-data &rest connection-args) &body body)
   `(let ((,session (create-ssh-connection ,host ,@connection-args)))
      (unwind-protect
-          (handler-bind ((libssh2-invalid-error-code
-                          (lambda (condition)
-                            (declare (ignore condition))
-                            (throw-last-error (session ,session)))))
-            (when (authentication ,session ,auth)
+          (when (authentication ,session ,auth-data)
+            (handler-bind ((libssh2-invalid-error-code
+                            (lambda (condition)
+                              (declare (ignore condition))
+                              (throw-last-error (session ,session)))))
               ,@body))
        (destroy-ssh-connection ,session))))
 
@@ -232,7 +233,7 @@
                  :login    login
                  :password password))
 
-(defvar *ssh-channel-buffer-size* 1400)
+(defvar *ssh-channel-buffer-size* 8196)
 
 (defclass ssh-channel-stream
     (trivial-gray-stream-mixin)
@@ -361,105 +362,95 @@
 
 (defmethod stream-read-line ((stream ssh-channel-stream-input))
   (let ((output '()))
-  (labels
-    ((repeat-not-wait ()
-       ;; Search for new line in cached tail
-       (let* ((nl-pos (position (char-code '#\Newline)
-                  (input-buffer stream)
-                  :start (input-pos  stream)
-                  :end   (input-size stream)))
-          (co-end (if nl-pos nl-pos (input-size stream))))
-       ;; Save substring or whole vector if any
-       (when (> (input-size stream) 0)
-         (push (subseq (input-buffer stream)
-               (input-pos stream)
-               co-end)
-           output))
+    (labels
+        ((repeat-not-wait ()
+           ;; Search for new line in cached tail
+           (let* ((nl-pos (position (char-code '#\Newline)
+                                    (input-buffer stream)
+                                    :start (input-pos  stream)
+                                    :end   (input-size stream)))
+                  (co-end (if nl-pos nl-pos (input-size stream))))
+             ;; Save substring or whole vector if any
+             (when (> (input-size stream) 0)
+               (push (subseq (input-buffer stream)
+                             (input-pos stream)
+                             co-end)
+                     output))
 
-       (if nl-pos
-         ;; If newline found - save position and return concatenated string
-         (prog1
-           (babel:octets-to-string
-            (apply #'concatenate
-               (cons '(VECTOR
-                   (UNSIGNED-BYTE
-                    8))
-                   (reverse output))))
-           (setf (input-pos stream) (+ 1 co-end))
-           (setf output '()))
+             (if nl-pos
+                 ;; If newline found - save position and return concatenated string
+                 (prog1
+                     (babel:octets-to-string
+                      (apply #'concatenate
+                             (cons '(VECTOR
+                                     (UNSIGNED-BYTE
+                                      8))
+                                   (reverse output))))
+                   (setf (input-pos stream) (+ 1 co-end))
+                   (setf output '()))
 
-         ;; If not - try to catch next portion
-         (multiple-value-bind (amount eof)
-           (channel-read (channel stream) (input-buffer stream))
-           (cond
-           ((not eof)
-            (progn
-            (setf (input-pos  stream) 0)
-            (setf (input-size stream) amount)
-            (repeat-not-wait)))
-           (t
-            (if (not (null output))
-              ;; Return last cached data
-              (let ((result
-                 (babel:octets-to-string
-                  (apply #'concatenate
-                     (cons '(VECTOR
-                         (UNSIGNED-BYTE
-                          8))
-                         (reverse output))))))
-              (setf (input-size stream) 0
-                  (input-pos  stream) 0)
-              (setf output '())
-              (values result t))
-              ;; Time to return nil
-              (values nil t)))))))))
-    (repeat-not-wait))))
-
-(defmethod stream-force-output ((stream ssh-channel-stream-output))
-  (with-slots (channel output-buffer output-pos output-size) stream
-  (let ((amount 0))
-    (when (> output-size 0)
-    (setq amount (channel-write channel
-                  output-buffer
-                  :start output-pos
-                  :end   output-size))
-    (incf output-pos amount))
-    (if (= output-pos
-       output-size)
-      (setf output-pos  0
-        output-size 0 ))
-    amount)))
-
-(defmethod stream-force-output ((stream ssh-channel-stream))
-  0)
+                 ;; If not - try to catch next portion
+                 (multiple-value-bind (amount eof)
+                     (channel-read (channel stream) (input-buffer stream))
+                   (cond
+                     ((not eof)
+                      (progn
+                        (setf (input-pos  stream) 0)
+                        (setf (input-size stream) amount)
+                        (repeat-not-wait)))
+                     (t
+                      (if (not (null output))
+                          ;; Return last cached data
+                          (let ((result
+                                 (babel:octets-to-string
+                                  (apply #'concatenate
+                                         (cons '(VECTOR
+                                                 (UNSIGNED-BYTE
+                                                  8))
+                                               (reverse output))))))
+                            (setf (input-size stream) 0
+                                  (input-pos  stream) 0)
+                            (setf output '())
+                            (values result t))
+                          ;; Time to return nil
+                          (values nil t)))))))))
+      (repeat-not-wait))))
 
 (defmethod stream-finish-output* ((stream ssh-channel-stream-output) &key (dont-send-eof nil))
   (with-slots (socket channel output-buffer output-pos output-size) stream
-  (let ((amount 0))
-    (when (> output-size 0)
-    (setq amount
-        (channel-write channel
-               output-buffer
-               :start output-pos
-               :end   output-size))
-    (incf output-pos amount)
-    (if (= output-pos
-         output-size)
+    (let ((retsize 0))
+      (do () ((= output-size output-pos))
+        (let ((amount (channel-write channel
+                                     output-buffer
+                                     :start output-pos
+                                     :end   output-size)))
+          (incf output-pos amount)
+          (incf retsize    amount)))
+
       (setf output-pos  0
-          output-size 0 )))
+            output-size 0)
 
-    (if dont-send-eof
-      amount
-      (channel-send-eof channel)))))
-
-(defmethod stream-finish-output ((stream ssh-channel-stream-output))
-  (stream-finish-output* stream))
+      (if dont-send-eof
+          retsize
+          (progn (channel-send-eof    channel)
+                 (channel-flush       channel)
+                 (channel-wait-eof    channel)
+                 retsize)))))
 
 (defmethod stream-finish-output ((stream ssh-channel-stream))
   0)
 
+(defmethod stream-force-output ((stream ssh-channel-stream))
+  0)
+
+(defmethod stream-finish-output ((stream ssh-channel-stream-output))
+  (stream-finish-output* stream))
+
+(defmethod stream-force-output ((stream ssh-channel-stream-output))
+  (stream-finish-output* stream :dont-send-eof t))
+
 (defmethod stream-write-byte ((stream ssh-channel-stream-output) byte)
-  (with-slots (output-pos output-size output-buffer) stream
+  (with-slots (output-size output-buffer) stream
     (if (>= output-size (length output-buffer))
       (stream-finish-output* stream :dont-send-eof t))
     (when (< output-size (length output-buffer))
@@ -475,49 +466,51 @@
   ;; Then directly write this one
   (stream-finish-output* stream :dont-send-eof t)
   (channel-write-string (channel stream)
-            sharable-sequence
-            :start start
-            :end   end))
+                        sharable-sequence
+                        :start start
+                        :end   end))
 
 (defmethod stream-write-sequence ((stream ssh-channel-stream-output) sequence start end &key)
   (with-slots (output-pos output-size output-buffer) stream
-  (let ((max-output-buffer     (length output-buffer))
-      (requested-output-size (- end start)))
-    (labels
-      ((push-to-stream ()
-       (let ((pushable-chunk-size (min requested-output-size
-                       max-output-buffer)))
-         (if (>= (+ output-size pushable-chunk-size)
-             max-output-buffer)
-           (stream-finish-output* stream :dont-send-eof t))
+    (let ((request-size (- end start))
+          (buffer-size  (length output-buffer)))
+      (labels ((push-to-stream ()
+                 ;; If no room in internal buffer, then flush it
+                 (when (>= output-size buffer-size)
+                   (stream-finish-output* stream :dont-send-eof t))
+                 ;; Get next portion of data
+                 (let ((portion (min request-size
+                                     (- buffer-size output-size))))
+                   ;; Save portion
+                   (replace output-buffer sequence
+                            :start1 output-size :end1 (+ output-size
+                                                         portion)
+                            :start2 start       :end2 (+ start
+                                                         portion))
+                   ;; Change stare
+                   (incf output-size  portion)
+                   (incf start        portion)
+                   (decf request-size portion))
 
-         (when (<= (+ output-size pushable-chunk-size)
-            max-output-buffer)
-         (progn
-           (replace output-buffer sequence
-              :start1 output-size
-              :end1   (+ output-size
-                     pushable-chunk-size)
-              :start2 start
-              :end2   (+ start
-                     pushable-chunk-size))
-           (incf output-size pushable-chunk-size)
-           (decf requested-output-size pushable-chunk-size)
-           (incf start pushable-chunk-size)
-           (when (> requested-output-size 0)
-           (push-to-stream)))))))
-    (push-to-stream)
-    sequence))))
+                 ;; Repeat, if not all sequence sended
+                 (when (> request-size 0)
+                   (push-to-stream))))
+
+        ;; Start iterations
+        (push-to-stream)))))
+
+
 
 (defmethod close ((stream ssh-channel-stream) &key abort)
   (let ((channel (channel stream)))
-  (when (not (null-pointer-p channel))
-    (unless abort
-    (stream-force-output stream)
-    (channel-flush channel))
+    (when (not (null-pointer-p channel))
+      (unless abort
+        (stream-finish-output stream)
+        (channel-wait-closed  channel))
 
-    (channel-close channel)
-    (channel-free channel))))
+      (channel-close channel)
+      (channel-free channel)
+      t)))
 
 (defmethod execute ((ssh ssh-connection) (command string))
   (with-slots (socket session) ssh
@@ -556,7 +549,7 @@
            :socket  (socket ssh)
            :channel new-channel))))
 
-(defmacro with-execute (command (ssh-connection stdio-stream)
+(defmacro with-execute ((stdio-stream ssh-connection command)
             &body body)
   `(let ((,stdio-stream (execute ,ssh-connection ,command)))
    (unwind-protect
@@ -567,15 +560,14 @@
            (channel-exit-status (channel ,stdio-stream)))))
      (close ,stdio-stream))))
 
-(defmacro with-execute* (command (ssh-connection stdio-stream)
-             &body body)
-  `(with-execute ,(concatenate 'string
-                 command " 2>&1")
-     (,ssh-connection ,stdio-stream)
-   (progn (stream-finish-output ,stdio-stream)
-      ,@body)))
+(defmacro with-execute* ((stdio-stream ssh-connection command)
+                         &body body)
+  `(with-execute (,stdio-stream ,ssh-connection
+                                (concatenate 'string ,command " 2>&1"))
+     (let ((*channel-read-zero-as-eof* t))
+       ,@body)))
 
-(defmacro with-scp-input (path (ssh-connection istream object-stat)
+(defmacro with-scp-input ((istream ssh-connection path object-stat)
               &body body)
   `(multiple-value-bind (,istream ,object-stat)
      (scp-input ,ssh-connection ,path)
@@ -585,7 +577,7 @@
       ,@body)
      (close ,istream))))
 
-(defmacro with-scp-output (path size (ssh-connection ostream &key
+(defmacro with-scp-output ((ostream ssh-connection path size &key
                     mtime atime mode) &body body)
   `(let ((,ostream (scp-output ,ssh-connection ,path ,size
                  :mode ,mode :atime ,atime, :mtime ,mtime)))

@@ -47,9 +47,9 @@ set."
 (defun usocket-get-fd (uso)
   (slot-value (usocket:socket uso) 'sb-bsd-sockets::file-descriptor))
 
+(defvar *config-directory* nil)
 (defun default-config-directory ()
-  (if (boundp '*config-directory*)
-      *config-directory*
+  (if *config-directory* *config-directory*
       (namestring (merge-pathnames ".ssh/" (user-homedir-pathname)))))
 
 (defun default-known-hosts ()

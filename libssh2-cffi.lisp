@@ -423,6 +423,12 @@
   (result-or-error
     (%channel-wait-closed channel)))
 
+(defcfun ("libssh2_channel_wait_eof" %channel-wait-eof) +ERROR-CODE+
+  (channel +channel+))
+(defun channel-wait-eof (channel)
+  (result-or-error
+    (%channel-wait-eof channel)))
+
 (defcfun ("libssh2_channel_process_startup" %channel-process-startup) +ERROR-CODE+
   (channel +channel+)
   (request :string) (request-length :unsigned-int)
@@ -508,7 +514,7 @@
                                               (- (length data)
                                                  start)))))
               (if (>= ret 0)
-                  ret
+                    ret
                   (result-or-error
                     (convert-from-foreign ret '+ERROR-CODE+)))))))
 
