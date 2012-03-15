@@ -45,7 +45,10 @@ set."
 
 
 (defun usocket-get-fd (uso)
-  (slot-value (usocket:socket uso) 'sb-bsd-sockets::file-descriptor))
+  #+:sbcl
+  (slot-value (usocket:socket uso) 'sb-bsd-sockets::file-descriptor)
+  #+:ccl
+  (ccl:socket-os-fd (usocket:socket uso)))
 
 (defvar *config-directory* nil)
 (defun default-config-directory ()
