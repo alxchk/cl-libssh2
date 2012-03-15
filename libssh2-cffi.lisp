@@ -37,8 +37,7 @@
 (defcfun ("libssh2_session_free" %session-free) +ERROR-CODE+
   (session +session+))
 (defun session-free (session)
-  (result-or-error
-    (%session-free session)))
+  (%session-free session))
 
 (defcfun ("libssh2_session_last_error" %session-last-error) +ERROR-CODE+
   (session +session+)

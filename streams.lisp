@@ -501,18 +501,17 @@
         ;; Start iterations
         (push-to-stream)))))
 
-
-
 (defmethod close ((stream ssh-channel-stream) &key abort)
   (let ((channel (channel stream)))
     (when (not (null-pointer-p channel))
-      (unless abort
-        (stream-finish-output stream)
-        (channel-wait-closed  channel))
-
-      (channel-close channel)
-      (channel-free channel)
-      t)))
+      (unwind-protect
+           (progn
+             (unless abort
+               (stream-finish-output stream)
+               (channel-wait-closed  channel))
+             (channel-close channel)
+             t)
+        (channel-free channel)))))
 
 (defmethod execute ((ssh ssh-connection) (command string))
   (with-slots (socket session) ssh
