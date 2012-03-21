@@ -145,6 +145,15 @@
   (key   :string)
   (type  +known-hosts-flags+))
 
+(defcstruct +kbd-prompt+
+  (text    :pointer)
+  (length  :unsigned-int)
+  (echo    :unsigned-char))
+
+(defcstruct +kbd-response+
+  (text    :pointer)
+  (length  :unsigned-int))
+
 (defstruct key
   (data 0 :read-only t)
   (size 0 :read-only t)

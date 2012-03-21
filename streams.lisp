@@ -138,7 +138,7 @@
           (restart-case
               (error 'ssh-bad-hostkey
            :reason host-key-status
-           :key (session-hostkey-fingerprint (session ssh)))
+           :hash (session-hostkey-fingerprint (session ssh)))
       (accept () t)
       (drop () nil)
       (accept-once  (&optional (comment ""))
@@ -157,16 +157,30 @@
   (session-auth-methods-list (session ssh) login))
 
 (defmethod authentication :around ((ssh ssh-connection) (auth auth-data))
-  (if (auth-passed ssh)
-    t
-    (if (ssh-verify-session ssh)
-      (setf (auth-passed ssh)
-            (call-next-method)))))
+  (let ((*errors-list* (remove :ERROR-AUTHENTICATION-FAILED *errors-list*)))
+    (if (auth-passed ssh)
+        t
+        (if (ssh-verify-session ssh)
+            (setf (auth-passed ssh)
+                  (call-next-method))))))
 
 (defmethod authentication ((ssh ssh-connection) (auth auth-password))
   (eq (user-auth-password (session  ssh)
                           (login    auth)
                           (password auth))
+      :ERROR-NONE))
+
+(defclass auth-password-emul (auth-data)
+  ((password :type      string
+             :initarg   :password
+             :initform  ""
+             :reader    password)))
+
+(defmethod authentication ((ssh ssh-connection) (auth auth-password-emul))
+  (eq (user-auth-interactive-trivial
+       (session  ssh)
+       (login    auth)
+       (password auth))
       :ERROR-NONE))
 
 (defclass auth-publickey (auth-data)
@@ -230,6 +244,11 @@
 
 (defun make-password-auth (login password)
   (make-instance 'auth-password
+                 :login    login
+                 :password password))
+
+(defun make-password-emul-auth (login password)
+  (make-instance 'auth-password-emul
                  :login    login
                  :password password))
 

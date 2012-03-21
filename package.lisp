@@ -2,8 +2,8 @@
 
 (defpackage libssh2
   (:use :cffi
-		:cl :cl-user
-		:trivial-gray-streams)
+        :cl :cl-user
+        :trivial-gray-streams)
   (:export
    ;; LIBSSH2 API
    #:with-session
@@ -84,6 +84,7 @@
    #:MAKE-PUBLICKEY-AUTH
    #:MAKE-AGENT-AUTH
    #:MAKE-PASSWORD-AUTH
+   #:MAKE-PASSWORD-EMUL-AUTH
    #:MAKE-AUTH-DATA
    #:SSH-CHANNEL-STREAM
    #:SSH-CHANNEL-STREAM-OUTPUT
@@ -143,6 +144,13 @@
    #:SSH-GENERIC-ERROR
    #:MESSAGE
    #:CODE #:FILE
+
+   ;; Restarts
+   #:TRY-CREATE-FILE
+   #:ACCEPT
+   #:ACCEPT-ONCE
+   #:ACCEPT-ALWAYS
+   #:DROP
 
    ;; Dynamic customizations
    #:*CHANNEL-READ-TYPE*

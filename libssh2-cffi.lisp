@@ -361,6 +361,45 @@
                            fs-password (- fs-password-size 1)
                            callback))))
 
+(defcfun ("libssh2_userauth_keyboard_interactive_ex" %user-auth-interactive) +ERROR-CODE+
+  (session +session+)
+  (username :string) (username-length :unsigned-int)
+  (callback :pointer))
+
+(defun user-auth-interactive (session username callback)
+  (with-foreign-string ((fs-username fs-username-size) username)
+    (%user-auth-interactive session
+                            fs-username
+                            (- fs-username-size 1)
+                            callback)))
+
+(defvar *keyboard-interactive-password* "")
+(defcallback trivial-keyboard-interactive-emulation :void
+    ((login :pointer)      (login-length       :unsigned-int)
+     (instruction :string) (instruction-length :unsigned-int)
+     (num-prompts :int)
+     (prompts   (:pointer +kbd-prompt+))
+     (responses (:pointer +kbd-response+))
+     (abstract  (:pointer :pointer)))
+  ;; Just don't care about input. Only send password
+  ;; Please, write you'r own callback, if you care
+  (declare
+   (ignore login)       (ignore login-length)
+   (ignore instruction) (ignore instruction-length)
+   (ignore prompts)     (ignore abstract))
+  (loop for i below num-prompts
+     do
+       (with-foreign-slots ((text length)
+                            (mem-aref responses '+kbd-response+ i)
+                            +kbd-response+)
+         (setf text   (foreign-string-alloc *keyboard-interactive-password*))
+         (setf length (foreign-funcall "strlen" :pointer text :unsigned-int)))))
+
+(defun user-auth-interactive-trivial (session username password)
+  (let ((*keyboard-interactive-password* password))
+    (user-auth-interactive session username
+                           (callback trivial-keyboard-interactive-emulation))))
+
 (defcfun ("libssh2_userauth_publickey_fromfile_ex" %user-auth-publickey) +ERROR-CODE+
   (session +session+)
   (username :string) (username-len :unsigned-int)
