@@ -1,6 +1,11 @@
 (libssh2:with-ssh-connection sshc
     ("192.168.30.193"
-     (libssh2:make-password-auth "root" "12345677"))
+     (libssh2:make-password-auth "root" "12345677")
+     :hosts-db (namestring
+                (merge-pathnames
+                 (make-pathname :directory '(:relative ".ssh")
+                                :name "libssh2-known_hosts")
+                 (user-homedir-pathname))))
   (let ((local/remote "/tmp/image")
         (remote/local "/os-devel/BUILDER/builds/np1U/root.img")
         (stream/type  '(unsigned-byte 8)))
