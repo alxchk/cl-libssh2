@@ -65,7 +65,8 @@
   (:ERROR-AGENT-PROTOCOL           -42)
   (:ERROR-SOCKET-RECV              -43)
   (:ERROR-ENCRYPT                  -44)
-  (:ERROR-BAD-SOCKET               -45))
+  (:ERROR-BAD-SOCKET               -45)
+  (:ERROR-KNOWN-HOSTS              -46))
 
 (defcenum +DISCONNECT-CODE+
   (:HOST-NOT-ALLOWED-TO-CONNECT         1 )
