@@ -16,6 +16,7 @@
              collect (mem-aref addr :unsigned-char i))))
 
 (define-foreign-library libssh2
+  (:darwin "libssh2.dylib")
   (:unix  "libssh2.so.1")
   (:win32 "libssh2-1.dll")
   (t (:default "libssh2")))
