@@ -16,7 +16,7 @@
   :serial       t
   :components   ((:file "package")
                  (:file "types")
-                 (cffi-grovel:grovel-file "libssh2-libc.cffi")
+                 (cffi-grovel:grovel-file "libssh2-libc-cffi")
                  (:file "util")
                  (:file "libssh2-cffi")
                  (:file "streams")
