@@ -19,7 +19,3 @@ script:
        -e '(ql:quickload :cffi-grovel)'
        -e '(ql:quickload :libssh2.test)'
        -e '(libssh2.test:run-all-tests)'
-
-notifications:
-  email:
-    - darabi@m-creations.net

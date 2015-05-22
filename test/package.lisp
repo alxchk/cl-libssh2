@@ -10,21 +10,16 @@
 
 (in-package #:libssh2.test)
 
-;; The suite 'u' is used for real unit tests which just test the code
+;; The suite 'unit' is used for real unit tests which just test the code
 ;; and don't depend on the presence of an SSH server
-(defsuite* (u :in root-suite))
+(defsuite* (unit :in root-suite))
 
-;; The suite 'int' is used for integration tests which depend on an
+;; The suite 'integration' is used for integration tests which depend on an
 ;; SSH server and some previously created users
-(defsuite* (int :in root-suite))
-
-
-(defun run-unit-tests ()
-  (funcall-test-with-feedback-message 'u))
-
-(defun run-integration-tests ()
-  (funcall-test-with-feedback-message 'u))
+(defsuite* (integration :in root-suite))
 
 (defun run-all-tests ()
-  (run-unit-tests)
-  (run-integration-tests))
+  (handler-case (progn
+                  (unit)
+                  (integration))
+    (t () (uiop:quit -1))))
