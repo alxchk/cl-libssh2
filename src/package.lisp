@@ -1,4 +1,6 @@
-(defpackage libssh2
+;; -*- mode: lisp; syntax: common-lisp -*-
+
+(defpackage :libssh2
   (:use :cffi :cl :trivial-gray-streams)
   (:export ;; LIBSSH2 API
            :with-session

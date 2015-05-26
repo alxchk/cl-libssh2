@@ -1,3 +1,5 @@
+;; -*- mode: lisp; syntax: common-lisp -*-
+
 (in-package :libssh2)
 
 (defvar *session* nil)

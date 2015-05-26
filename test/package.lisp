@@ -23,3 +23,24 @@
                   (unit)
                   (integration))
     (t () (uiop:quit -1))))
+
+(defparameter *known-hosts-path* (namestring
+                                  (merge-pathnames
+                                   (make-pathname :directory '(:relative ".ssh")
+                                                  :name "libssh2-known_hosts")
+                                   (user-homedir-pathname))))
+
+(defparameter *test-host* "localhost"
+  "Host name or IP of the SSH server which is used for integration testing. Default value is 'localhost'; set this via command line (-e) before starting tests.")
+
+(defparameter *user1* nil
+  "Login name of the first user for integration testing; set this via command line (-e) before starting tests. ")
+
+(defparameter *password1* nil
+  "Password of the first user for integration testing; set this via command line (-e) before starting tests. ")
+
+(defparameter *user2* nil
+  "Login name of the second user for integration testing; set this via command line (-e) before starting tests. ")
+
+(defparameter *password2* nil
+  "Password of the second user for integration testing; set this via command line (-e) before starting tests. ")

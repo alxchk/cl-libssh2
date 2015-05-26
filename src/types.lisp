@@ -1,3 +1,5 @@
+;; -*- mode: lisp; syntax: common-lisp -*-
+
 (in-package :libssh2)
 
 (defcenum +DISCONNECT-CODE+
@@ -65,23 +67,6 @@
   (:ERROR-ENCRYPT                  -44)
   (:ERROR-BAD-SOCKET               -45)
   (:ERROR-KNOWN-HOSTS              -46))
-
-(defcenum +DISCONNECT-CODE+
-  (:HOST-NOT-ALLOWED-TO-CONNECT         1)
-  (:PROTOCOL-ERROR                      2)
-  (:KEY-EXCHANGE-FAILED                 3)
-  (:RESERVED                            4)
-  (:MAC-ERROR                           5)
-  (:COMPRESSION-ERROR                   6)
-  (:SERVICE-NOT-AVAILABLE               7)
-  (:PROTOCOL-VERSION-NOT-SUPPORTED      8)
-  (:HOST-KEY-NOT-VERIFIABLE             9)
-  (:CONNECTION-LOST                     10)
-  (:BY-APPLICATION                      11)
-  (:TOO-MANY-CONNECTIONS                12)
-  (:AUTH-CANCELLED-BY-USER              13)
-  (:NO-MORE-AUTH-METHODS-AVAILABLE      14)
-  (:ILLEGAL-USER-NAME                   15))
 
 (defcenum +BLOCKING+
   (:BLOCKING     1)
@@ -158,16 +143,23 @@
   (size 0 :read-only t)
   (type 0 :read-only t))
 
-(define-condition ssh-generic-error (error)
+(define-condition ssh-condition (condition)
   ((message :type     string
             :initarg  :message
             :accessor message)
    (code    :type     +ERROR-CODE+
             :accessor code
-            :initarg  :code)))
+            :initarg  :code))
+  (:report (lambda (c stream)
+             (format stream "An SSH error occurred (code: ~A): ~A." (code c) (message c))))
+  (:documentation "Parent condition for all situations where a libssh2
+  call yields a non-zero return value. `CODE' and `MESSAGE' are used
+  to transport the error code and message from C."))
 
-(defmethod print-object ((sge ssh-generic-error) stream)
-  (format stream "Libssh2: ~a (~a)" (message sge) (code sge)))
+(define-condition ssh-generic-error (ssh-condition error)
+  ()
+  (:documentation "Signalled when a non-correctable condition occurs
+  during a libssh2 call."))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *default-errors-list*
@@ -177,7 +169,14 @@
 
 (defvar *errors-list* *default-errors-list*)
 
-(define-condition libssh2-invalid-error-code (error)
-  ((code :type     keyword
-         :accessor code
-         :initarg  :code)))
+(define-condition libssh2-invalid-error-code (ssh-generic-error)
+  ()
+  (:documentation "Signalled when an error code is returned by libssh2
+  which is unknown (or better: not yet known) to this library; this
+  situation can arise when libssh2 adds a new error, but the lisp code
+  is not yet updated to reflect the change. The `MESSAGE' slot is set
+  to 'Received unknown error code from libssh2; please contact the
+  cl-libssh2 authors.'"))
+
+(defmethod initialize-instance :after ((e libssh2-invalid-error-code) &key)
+  (setf (message e) "Received unknown error code from libssh2; please contact the cl-libssh2 authors."))

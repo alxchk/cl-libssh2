@@ -1,11 +1,24 @@
+;; -*- mode: lisp; syntax: common-lisp -*-
+
 (in-package :libssh2)
 
+(defparameter *ssh-connection* nil
+  "Dynamic variable which holds an instance of SSH-CONNECTION which is
+  a wrapper around the libssh2 'session' pointer, and contains
+  additional information about host, port etc.")
+
 (defmacro result-or-error (&body body)
-  `(let ((results (multiple-value-list (progn ,@body)))
-         (throwable-errors *errors-list*))
-     (if (find (car results)
-               throwable-errors)
-         (error 'libssh2-invalid-error-code :code (car results))
+  `(let* ((results (multiple-value-list (progn ,@body)))
+          (throwable-errors *errors-list*)
+          (result (car results))
+          (result-keyword (typecase result
+                            (keyword result)
+                            (integer (foreign-enum-keyword '+ERROR-CODE+ result :errorp nil))
+                            (t (session-last-errno (session *ssh-connection*))))))
+     (if (find result-keyword throwable-errors)
+         (signal 'ssh-generic-error
+                 :code result-keyword
+                 :message (session-last-error (session *ssh-connection*)))
          (values-list results))))
 
 (defun print-memory (addr size)
@@ -70,7 +83,7 @@
                                   (null-pointer)
                                   (null-pointer))))
     (if (null-pointer-p session)
-        (result-or-error :UNKNOWN)
+        (error 'ssh-generic-error :code :UNKNOWN :message "Could not initialise a session object with session-init-ex")
         (progn
           (session-set-blocking session :NON-BLOCKING)
           session))))
@@ -258,7 +271,7 @@
                             (known-host (null-pointer)))
   (let ((fp (key-data key)))
     (if (null-pointer-p fp)
-        (result-or-error :UNKNOWN)
+        (signal 'ssh-generic-error :code :UNKNOWN :message "Host key is null")
         (with-foreign-string (fs-hostname hostname)
           (with-foreign-object (hostinfo :pointer 1)
             (setf (mem-aref hostinfo :pointer 0) known-host)
@@ -312,10 +325,10 @@
          (known-hosts-free ,known-hosts)))))
 
 (defcfun ("libssh2_knownhost_addc" %known-hosts-addc) +ERROR-CODE+
-  (known-hosts +known-hosts+)
+  (known-hosts (:pointer (:struct +known-host+)))
   (host :string) (salt :string) (key :pointer) (key-length :unsigned-int)
   (comment :string) (comment-length :unsigned-int)
-  (typemask :int) (known-host +known-host+))
+  (typemask :int) (known-host (:pointer (:struct +known-host+))))
 
 (defun known-hosts-add (known-hosts host-full-string key
                         &key
@@ -377,8 +390,8 @@
     ((login :pointer)      (login-length       :unsigned-int)
      (instruction :string) (instruction-length :unsigned-int)
      (num-prompts :int)
-     (prompts   (:pointer +kbd-prompt+))
-     (responses (:pointer +kbd-response+))
+     (prompts   (:pointer (:struct +kbd-prompt+)))
+     (responses (:pointer (:struct +kbd-response+)))
      (abstract  (:pointer :pointer)))
   ;; Just don't care about input. Only send password
   ;; Please, write you'r own callback, if you care

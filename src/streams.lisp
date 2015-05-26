@@ -1,3 +1,5 @@
+;; -*- mode: lisp; syntax: common-lisp -*-
+
 (in-package :libssh2)
 
 ;; clos facade: for blocking streams!! ;;
@@ -99,13 +101,15 @@
       (session-free (session ssh)))))
 
 (defmacro with-ssh-connection (session (host auth-data &rest connection-args) &body body)
-  `(let ((,session (create-ssh-connection ,host ,@connection-args)))
+  `(let* ((,session (create-ssh-connection ,host ,@connection-args))
+          (*ssh-connection* ,session))
      (unwind-protect
           (when (authentication ,session ,auth-data)
             (handler-bind ((libssh2-invalid-error-code
                             (lambda (condition)
                               (declare (ignore condition))
-                              (throw-last-error (session ,session)))))
+                              (throw-last-error (session ,session))))
+                           (ssh-condition (lambda (c) (signal c))))
               ,@body))
        (destroy-ssh-connection ,session))))
 
