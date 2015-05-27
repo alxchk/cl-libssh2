@@ -19,10 +19,12 @@
 (defsuite* (integration :in root-suite))
 
 (defun run-all-tests ()
-  (handler-case (progn
-                  (unit)
-                  (integration))
-    (t () (uiop:quit -1))))
+  (handler-bind ((libssh2::known-hosts-reading-error (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
+                 (libssh2::ssh-unknown-hostkey (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
+                 (condition (lambda (c) (declare (ignore c)) (uiop:quit -1))))
+    (progn
+      (unit)
+      (integration))))
 
 (defparameter *known-hosts-path* (namestring
                                   (merge-pathnames
