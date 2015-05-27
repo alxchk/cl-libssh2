@@ -9,7 +9,6 @@ install:
   - curl https://raw.githubusercontent.com/luismbo/cl-travis/master/install.sh | bash
   # Install the SSH server, openssl tools, and libssh2
   - sudo apt-get install -y openssh-server openssl libssh2-1
-  - mkdir ~/.ssh/ && chmod go-rwx ~/.ssh/
   # create a group for testing
   - sudo groupadd ssh2test
   - sudo useradd -g ssh2test -p $(openssl passwd "test1") test1
