@@ -180,3 +180,25 @@
 
 (defmethod initialize-instance :after ((e libssh2-invalid-error-code) &key)
   (setf (message e) "Received unknown error code from libssh2; please contact the cl-libssh2 authors."))
+
+(define-condition ssh-handshake-error (ssh-generic-error) ())
+
+(define-condition ssh-hostkey-condition (ssh-condition)
+  ((host   :type      string
+           :accessor  host
+           :initarg   :host)
+   (hash   :type      string
+           :accessor  hash
+           :initarg   :hash)))
+
+(define-condition ssh-unknown-hostkey (ssh-hostkey-condition)
+  ()
+  (:report (lambda (c stream)
+             (format stream "Unknown key for host ~A (hash: ~A)" (host c) (hash c)))))
+
+(define-condition ssh-bad-hostkey (ssh-hostkey-condition ssh-generic-error)
+  ((reason :type      +check-verdict+
+           :accessor  reason
+           :initarg   :reason))
+  (:report (lambda (c stream)
+             (format stream "Verification of key for host ~A (hash: ~A) failed with reason ~A" (host c) (hash c) (reason c)))))
