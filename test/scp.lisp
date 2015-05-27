@@ -2,12 +2,11 @@
 
 (in-package #:libssh2.test)
 
-
 (in-suite integration)
 
 (deftest scp-copy-back-and-forth ()
   (with-ssh-connection sshc
-      (*test-host*
+     (*test-host*
      (libssh2:make-password-auth *user1* *password1*)
      :hosts-db *known-hosts-path*)
     (let ((test-file (asdf:system-relative-pathname (asdf:find-system :libssh2) "test/data/testfile.tgz"))
@@ -31,7 +30,7 @@
                              :element-type stream/type)
           (cl-fad:copy-stream in out)))
       ;; calculate remote md5
-      (libssh2:with-execute* (in sshc (format nil "md5sum ~a" test-file #+nil final))
+      (libssh2:with-execute* (in sshc (format nil "md5sum ~a" test-file))
         (let ((sums (loop for line = (read-line in nil)
                           while line
                           do (format t "~%<~A>~%" (split-sequence:split-sequence #\Space line))

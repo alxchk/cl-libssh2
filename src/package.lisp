@@ -51,6 +51,9 @@
            :channel-exit-status
            :channel-scp-recv
 
+           ;; SFTP
+           :sftp-list-directory
+
            ;; STREAMS API // BLOCKING
 
            :AUTH-DATA

@@ -98,8 +98,7 @@
             (handler-bind ((libssh2-invalid-error-code
                             (lambda (condition)
                               (declare (ignore condition))
-                              (throw-last-error (session ,session))))
-                           (ssh-condition (lambda (c) (signal c))))
+                              (throw-last-error (session ,session)))))
               ,@body))
        (destroy-ssh-connection ,session))))
 
@@ -126,10 +125,10 @@
                                                :port (port ssh))))
       (restart-case
           (case host-key-status
-            (:match t)
-            (:not-found (signal 'ssh-unknown-hostkey
-                                :host (host ssh)
-                                :hash (session-hostkey-fingerprint (session ssh))))
+            (:match (return-from ssh-verify-session t))
+            (:not-found (error 'ssh-unknown-hostkey
+                               :host (host ssh)
+                               :hash (session-hostkey-fingerprint (session ssh))))
             (t (error 'ssh-bad-hostkey
                       :host (host ssh)
                       :reason host-key-status

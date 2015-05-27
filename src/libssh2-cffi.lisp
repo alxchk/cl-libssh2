@@ -7,6 +7,10 @@
   a wrapper around the libssh2 'session' pointer, and contains
   additional information about host, port etc.")
 
+(defparameter *sftp-session* nil
+  "Dynamic variable which is bound to a foreign reference representing
+  the SFTP session (in libssh2 terms).")
+
 (defmacro result-or-error (&body body)
   `(let* ((results (multiple-value-list (progn ,@body)))
           (throwable-errors *errors-list*)
@@ -15,16 +19,19 @@
                             (keyword result)
                             (integer (foreign-enum-keyword '+ERROR-CODE+ result :errorp nil))
                             (t (session-last-errno (session *ssh-connection*))))))
+     (format t "Result of ~A: ~A keyword: ~A~%" ',(caar body) results result-keyword)
      (if (find result-keyword throwable-errors)
-         (signal 'ssh-generic-error
+         (error 'ssh-generic-error
                  :code result-keyword
-                 :message (session-last-error (session *ssh-connection*)))
+                 :message (if (eql result-keyword :error-sftp-protocol)
+                              (libssh2-sftp-last-error *sftp-session*)
+                              (session-last-error (session *ssh-connection*))))
          (values-list results))))
 
 (defun print-memory (addr size)
   (format t "~{~x ~}"
           (loop for i below size
-             collect (mem-aref addr :unsigned-char i))))
+                collect (mem-aref addr :unsigned-char i))))
 
 (define-foreign-library libssh2
   (:darwin "libssh2.dylib")
@@ -271,7 +278,7 @@
                             (known-host (null-pointer)))
   (let ((fp (key-data key)))
     (if (null-pointer-p fp)
-        (signal 'ssh-generic-error :code :UNKNOWN :message "Host key is null")
+        (error 'ssh-generic-error :code :UNKNOWN :message "Host key is null")
         (with-foreign-string (fs-hostname hostname)
           (with-foreign-object (hostinfo :pointer 1)
             (setf (mem-aref hostinfo :pointer 0) known-host)
@@ -611,3 +618,203 @@
           (result-or-error
             (session-last-errno session))
           result))))
+
+;;; SFTP related
+
+
+(defmacro defcfun-error-check ((c-function-name lisp-function-name) result-type &rest rest)
+  (let ((internal-name (alexandria:symbolicate "%" (symbol-name lisp-function-name)))
+        (args (mapcar #'first rest)))
+    `(progn
+       (defcfun (,c-function-name ,internal-name) ,result-type
+         ,@rest)
+       (defun ,lisp-function-name ,args
+         (result-or-error (,internal-name ,@args))))))
+
+(defcstruct _libssh2-sftp-handle)
+
+(defctype libssh2-sftp-handle (:pointer (:struct _libssh2-sftp-handle)))
+
+(defctype size-t :unsigned-long)
+
+(defctype libssh2-uint-64-t :unsigned-long-long)
+
+(defcstruct _libssh2-sftp-attributes
+  (flags :unsigned-long)
+  (filesize libssh2-uint-64-t)
+  (uid :unsigned-long)
+  (gid :unsigned-long)
+  (permissions :unsigned-long)
+  (atime :unsigned-long)
+  (mtime :unsigned-long))
+
+(defctype libssh2-sftp-attributes (:pointer (:struct _libssh2-sftp-attributes)))
+
+(defcfun-error-check ("libssh2_sftp_readdir_ex" libssh2-sftp-readdir-ex) :int
+  (handle :pointer)
+  (buffer (:pointer :char))
+  (buffer-maxlen size-t)
+  (longentry (:pointer :char))
+  (longentry-maxlen size-t)
+  (attrs libssh2-sftp-attributes))
+
+(defcstruct _libssh2-sftp)
+
+(defctype libssh2-sftp (:pointer (:struct _libssh2-sftp)))
+
+(defcstruct _libssh2-sftp-statvfs
+  (f-bsize libssh2-uint-64-t)
+  (f-frsize libssh2-uint-64-t)
+  (f-blocks libssh2-uint-64-t)
+  (f-bfree libssh2-uint-64-t)
+  (f-bavail libssh2-uint-64-t)
+  (f-files libssh2-uint-64-t)
+  (f-ffree libssh2-uint-64-t)
+  (f-favail libssh2-uint-64-t)
+  (f-fsid libssh2-uint-64-t)
+  (f-flag libssh2-uint-64-t)
+  (f-namemax libssh2-uint-64-t))
+
+(defctype libssh2-sftp-statvfs (:pointer (:struct _libssh2-sftp-statvfs)))
+
+(defcfun ("libssh2_sftp_statvfs" %libssh2-sftp-statvfs) :int
+  (sftp :pointer)
+  (path :string)
+  (path-len size-t)
+  (st :pointer))
+
+(defun libssh2-sftp-statvfs (sftp path st)
+  (with-foreign-strings (((fs-path fs-path-len) path))
+    (result-or-error
+      (%libssh2-sftp-statvfs sftp fs-path (- fs-path-len 1) st))))
+
+(defcfun-error-check ("libssh2_sftp_read" libssh2-sftp-read) size-t
+                     (handle :pointer)
+                     (buffer (:pointer :char))
+                     (buffer-maxlen size-t))
+
+(defcfun ("libssh2_sftp_symlink_ex" %libssh2-sftp-symlink-ex) :int
+  (sftp :pointer)
+  (path :string)
+  (path-len :unsigned-int)
+  (target :string)
+  (target-len :unsigned-int)
+  (link-type :int))
+
+(defun libssh2-sftp-symlink-ex (sftp source target link-type)
+  (with-foreign-strings (((fs-source fs-source-len) source)
+                         ((fs-target fs-target-len) target))
+    (result-or-error
+      (%libssh2-sftp-symlink-ex sftp fs-source (- fs-source-len 1) fs-target (- fs-target-len 1) link-type))))
+
+(defcfun-error-check ("libssh2_sftp_shutdown" libssh2-sftp-shutdown) :int
+                     (sftp :pointer))
+
+(defcfun-error-check ("libssh2_sftp_close_handle" libssh2-sftp-close-handle) :int
+                     (handle :pointer))
+
+(defcfun-error-check ("libssh2_sftp_tell64" libssh2-sftp-tell-64) libssh2-uint-64-t
+                     (handle :pointer))
+
+(defcfun-error-check ("libssh2_sftp_write" libssh2-sftp-write) size-t
+                     (handle :pointer) (buffer :pointer)
+                     (count size-t))
+
+(defcfun ("libssh2_sftp_rmdir_ex" %libssh2-sftp-rmdir-ex) :int
+  (sftp :pointer)
+  (path :string)
+  (path-len :unsigned-int))
+
+(defun libssh2-sftp-rmdir-ex (sftp path)
+  (with-foreign-strings (((fs-path fs-path-len) path))
+    (result-or-error
+      (%libssh2-sftp-rmdir-ex sftp fs-path (- fs-path-len 1)))))
+
+(defcfun ("libssh2_sftp_last_error" libssh2-sftp-last-error) sftp-error-code
+  (sftp :pointer))
+
+(defcfun ("libssh2_sftp_rename_ex" %libssh2-sftp-rename-ex) :int
+  (sftp :pointer)
+  (source-filename :string)
+  (source-filename-len :unsigned-int)
+  (dest-filename :string)
+  (dest-filename-len :unsigned-int)
+  (flags :long))
+
+(defun libssh2-sftp-rename-ex (sftp source dest flags)
+  (with-foreign-strings (((fs-source fs-source-len) source)
+                         ((fs-dest fs-dest-len) dest))
+    (result-or-error
+      (%libssh2-sftp-rename-ex sftp fs-source (- fs-source-len 1) fs-dest (- fs-dest-len 1) flags))))
+
+(defcfun-error-check ("libssh2_sftp_seek64" libssh2-sftp-seek-64) :void
+  (handle :pointer)
+  (offset libssh2-uint-64-t))
+
+(defcfun-error-check ("libssh2_sftp_init" libssh2-sftp-init) :pointer
+                     (session +session+))
+
+(defcfun-error-check ("libssh2_sftp_seek" libssh2-sftp-seek) :void
+                     (handle :pointer)
+                     (offset size-t))
+
+(defcfun-error-check ("libssh2_sftp_fstat_ex" libssh2-sftp-fstat-ex) :int
+                     (handle :pointer)
+                     (attrs :pointer)
+                     (setstat :int))
+
+(defcfun-error-check ("libssh2_sftp_get_channel" libssh2-sftp-get-channel) :pointer
+                     (sftp :pointer))
+
+(defcfun-error-check ("libssh2_sftp_fstatvfs" libssh2-sftp-fstatvfs) :int
+                     (handle :pointer)
+                     (st :pointer))
+
+(defcfun ("libssh2_sftp_stat_ex" %libssh2-sftp-stat-ex) :int
+  (sftp :pointer)
+  (path :string)
+  (path-len :unsigned-int)
+  (stat-type :int)
+  (attrs :pointer))
+
+(defun libssh2-sftp-stat-ex (sftp path stat-type attrs)
+  (with-foreign-strings (((fs-path fs-path-len) path))
+    (result-or-error
+      (%libssh2-sftp-stat-ex sftp fs-path (- fs-path-len 1) stat-type attrs))))
+
+(defcfun-error-check ("libssh2_sftp_tell" libssh2-sftp-tell) size-t
+                     (handle :pointer))
+
+(defcfun ("libssh2_sftp_mkdir_ex" %libssh2-sftp-mkdir-ex) :int
+  (sftp :pointer)
+  (path :string)
+  (path-len :unsigned-int)
+  (mode :long))
+
+(defun libssh2-sftp-mkdir-ex (sftp path mode)
+  (with-foreign-strings (((fs-path fs-path-len) path))
+    (result-or-error
+      (%libssh2-sftp-mkdir-ex sftp fs-path (- fs-path-len 1) mode))))
+
+(defcfun ("libssh2_sftp_unlink_ex" %libssh2-sftp-unlink-ex) :int
+  (sftp :pointer)
+  (filename :string)
+  (filename-len :unsigned-int))
+
+(defun libssh2-sftp-unlink-ex (sftp filename)
+  (with-foreign-strings (((fs-filename fs-filename-len) filename))
+    (result-or-error
+      (%libssh2-sftp-unlink-ex sftp fs-filename (- fs-filename-len 1)))))
+
+(defcfun ("libssh2_sftp_open_ex" %libssh2-sftp-open-ex) :pointer
+  (sftp :pointer)
+  (filename :string)
+  (filename-len :unsigned-int)
+  (flags :unsigned-long)
+  (mode :long)
+  (open-type sftp-open-types))
+
+(defun libssh2-sftp-open-ex (sftp filename flags mode open-type)
+  (with-foreign-strings (((fs-filename fs-filename-len) filename))
+    (result-or-error
+      (%libssh2-sftp-open-ex sftp fs-filename (- fs-filename-len 1) flags mode open-type))))
