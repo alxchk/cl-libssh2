@@ -21,4 +21,3 @@ script:
        -e '(setf libssh2.test::*user1* "test1" libssh2.test::*password1* "test1")'
        -e '(setf libssh2.test::*user2* "test2" libssh2.test::*password2* "test2")'
        -e '(libssh2.test:run-all-tests)'
-  - ls -al /tmp/

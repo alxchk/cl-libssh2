@@ -36,5 +36,4 @@
                           while line
                           do (format t "~%<~A>~%" (split-sequence:split-sequence #\Space line))
                           collect (car (split-sequence:split-sequence #\Space line)))))
-          (unless (every (lambda (s) (equal s md5)) sums)
-            (error "MD5 sums of local and remote files differ")))))))
+          (is (every (lambda (s) (equal s md5)) sums) "MD5 sums of local and remote files differ"))))))
