@@ -295,34 +295,18 @@
 (defmethod print-object :after ((khre known-hosts-reading-error) stream)
   (format stream "// ~a" (file khre)))
 
-(defmacro with-known-hosts ( ( known-hosts (session known-hosts-filename)) &body body )
+(defmacro with-known-hosts ( ( known-hosts (session known-hosts-filename)) &body body)
   `(let ((,known-hosts (known-hosts-init ,session))
          (*errors-list* (remove :ERROR-FILE *default-errors-list*)))
      (unwind-protect
           (if (and (not (null-pointer-p ,known-hosts))
-                   (eq (labels
-                           ((try-again ()
-                              (let ((result (known-hosts-readfile ,known-hosts ,known-hosts-filename)))
-                                (if (eq result :ERROR-FILE)
-                                    (restart-case
-                                        (with-last-error (,session known-hosts-reading-error)
-                                          :file ,known-hosts-filename)
-                                      (try-create-file ()
-                                        (unless
-                                            (eq (known-hosts-writefile ,known-hosts ,known-hosts-filename)
-                                                :ERROR-NONE)
-                                          (with-last-error (,session known-hosts-reading-error)
-                                            :file ,known-hosts-filename))
-                                        (try-again))
-                                      (ignore () nil))
-                                    result))))
-                         (try-again)) :ERROR-NONE))
+                   (or (eq :error-none (known-hosts-readfile ,known-hosts ,known-hosts-filename))
+                       (eq :error-none (known-hosts-writefile ,known-hosts ,known-hosts-filename))))
               (progn
                 ,@body)
-              (with-last-error (,session known-hosts-reading-error)
-                :file ,known-hosts-filename))
-       (unless (null-pointer-p ,known-hosts)
-         (known-hosts-free ,known-hosts)))))
+              (with-last-error (,session known-hosts-reading-error) :file ,known-hosts-filename)))
+     (unless (null-pointer-p ,known-hosts)
+       (known-hosts-free ,known-hosts))))
 
 (defcfun ("libssh2_knownhost_addc" %known-hosts-addc) +ERROR-CODE+
   (known-hosts (:pointer (:struct +known-host+)))
