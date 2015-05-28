@@ -2,7 +2,7 @@
 
 (in-package :asdf)
 
-(defsystem libssh2.test
+(defsystem :libssh2.test
   :description "cl-libssh2 tests"
   :author       "Oleksii Shevchuk <alxchk@gmail.com>"
   :license      "Public Domain"

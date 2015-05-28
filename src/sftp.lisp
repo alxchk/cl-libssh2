@@ -59,7 +59,7 @@ It is possible to combine `MAXFILES' and `EXTENSIONS' (retrieve 5 files with ext
   "Receive a remote file `PATH' on the server to which we are connected with `SSH-CONNECTION' to a local file at `LOCAL-PATH'."
   (with-sftp (sftp ssh-connection)
     (let ((handle)
-           (buffer))
+          (buffer))
       (unwind-protect
         (progn
           (setf handle (libssh2-sftp-open-ex sftp remote-path (foreign-bitfield-value 'sftp-flags '(:read)) 0 :file))
