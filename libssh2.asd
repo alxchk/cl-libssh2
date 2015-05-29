@@ -13,6 +13,7 @@
   :depends-on   (:babel
                  :cffi
                  :cl-fad
+                 :hu.dwim.logger
                  :split-sequence
                  :trivial-gray-streams
                  :usocket)
@@ -20,6 +21,7 @@
   :components   ((:module "src"
                   :serial t
                   :components ((:file "package")
+                               (:file "logging")
                                (:file "types")
                                (cffi-grovel:grovel-file "libssh2-libc-cffi")
                                (:file "util")

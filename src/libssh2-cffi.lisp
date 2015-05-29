@@ -19,7 +19,7 @@
                             (keyword result)
                             (integer (foreign-enum-keyword '+ERROR-CODE+ result :errorp nil))
                             (t (session-last-errno (session *ssh-connection*))))))
-     (format t "Result of ~A: ~A keyword: ~A~%" ',(caar body) results result-keyword)
+     (ssh2.dribble "Result of ~A: ~A keyword: ~A" ',(caar body) results result-keyword)
      (if (find result-keyword throwable-errors)
          (error 'ssh-generic-error
                  :code result-keyword

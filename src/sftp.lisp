@@ -44,6 +44,8 @@ It is possible to combine `MAXFILES' and `EXTENSIONS' (retrieve 5 files with ext
            (with-foreign-object (attrs '(:struct _libssh2-sftp-attributes))
              (loop while (> (libssh2-sftp-readdir-ex handle buffer 1024 longentry 1024 attrs) 0)
                    while (> maxfiles (length files))
+                   for attr-plist = (convert-from-foreign attrs '(:struct _libssh2-sftp-attributes))
+                   do (ssh2.dribble "Attributes of ~A: ~A, permissions: ~A" (foreign-string-to-lisp buffer) attr-plist (foreign-bitfield-symbols 'sftp-modes (getf attr-plist 'permissions)))
                    when (or (null extensions)
                             (ends-with-any? (foreign-string-to-lisp buffer) extensions)) collect (foreign-string-to-lisp buffer) into files
                    finally (return files)))
@@ -62,20 +64,22 @@ It is possible to combine `MAXFILES' and `EXTENSIONS' (retrieve 5 files with ext
           (buffer))
       (unwind-protect
         (progn
+          (ssh2.debug "Trying to retrieve remote file ~A to local file ~A" remote-path local-path))
           (setf handle (libssh2-sftp-open-ex sftp remote-path (foreign-bitfield-value 'sftp-flags '(:read)) 0 :file))
           (setf buffer (foreign-alloc :char :count +sftp-read-buffer-size+ :initial-element 0))
           (with-open-file (out local-path :direction :output :if-exists :supersede :element-type '(signed-byte 8))
             (loop for numbytes = (libssh2-sftp-read handle buffer +sftp-read-buffer-size+)
-                  do (format t "numbytes ~A~%" numbytes)
+                  do (ssh2.dribble "libssh2-sftp-read returned numbytes=~A" numbytes)
                   while (> numbytes 0)
                   do
                   (write-sequence (cffi:convert-from-foreign buffer `(:array :char ,numbytes)) out)))
-          (format t "File was written to ~A~%" local-path))
+          (ssh2.debug "Remote file ~A was written to ~A" remote-path local-path))
         (when handle (libssh2-sftp-close-handle handle))
-        (when buffer (foreign-free buffer))))))
+        (when buffer (foreign-free buffer)))))
 
 (defun sftp-delete (ssh-connection remote-path)
   "Delete a remote file `PATH' on the server to which we are connected with `SSH-CONNECTION'."
   (with-sftp (sftp ssh-connection)
+    (ssh2.debug "Trying to delete remote file ~A" remote-path)
     (let ((result (libssh2-sftp-unlink-ex sftp remote-path)))
-      (format t "Deleting ~A resulted in ~A.~%" remote-path result))))
+      (ssh2.debug "Deleting ~A resulted in ~A." remote-path result))))
