@@ -120,6 +120,8 @@
            :WITH-EXECUTE*
            :WITH-SCP-INPUT
            :WITH-SCP-OUTPUT
+           :scp-get
+           :scp-put
 
            ;; CONDITIONS & SLOTS
            :KNOWN-HOSTS-READING-ERROR

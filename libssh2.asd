@@ -25,5 +25,6 @@
                                (:file "util")
                                (:file "libssh2-cffi")
                                (:file "streams")
+                               (:file "scp")
                                (:file "sftp")
                                (:file "solutions")))))
