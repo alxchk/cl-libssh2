@@ -1,6 +1,6 @@
-;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
+;; -*- mode: lisp; syntax: common-lisp -*-
 
-(in-package libssh2)
+(in-package :libssh2)
 
 ;; From:
 ;;  http://common-lisp.net/~loliveira/ediware/hunchentoot/set-timeouts.lisp

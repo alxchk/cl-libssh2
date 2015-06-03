@@ -1,7 +1,6 @@
+;; -*- mode: lisp; syntax: common-lisp -*-
 
-;; -*- mode: lisp; tab-width: 4; ident-tabs-mode: nil -*-
-
-(in-package libssh2)
+(in-package :libssh2)
 
 ;; clos facade: for blocking streams!! ;;
 
@@ -46,16 +45,6 @@
    (auth-passed :type     boolean
                 :initform nil
                 :accessor auth-passed)))
-
-(define-condition ssh-handshake-error (ssh-generic-error) ())
-
-(define-condition ssh-bad-hostkey (error)
-  ((reason :type      +check-verdict+
-           :accessor  reason
-           :initarg   :reason)
-   (hash   :type      string
-           :accessor  hash
-           :initarg   :hash)))
 
 (defmethod create-ssh-connection (host
                   &key
@@ -102,7 +91,8 @@
       (session-free (session ssh)))))
 
 (defmacro with-ssh-connection (session (host auth-data &rest connection-args) &body body)
-  `(let ((,session (create-ssh-connection ,host ,@connection-args)))
+  `(let* ((,session (create-ssh-connection ,host ,@connection-args))
+          (*ssh-connection* ,session))
      (unwind-protect
           (when (authentication ,session ,auth-data)
             (handler-bind ((libssh2-invalid-error-code
@@ -133,25 +123,29 @@
                                                (host ssh)
                                                host-key
                                                :port (port ssh))))
-      (if (eq host-key-status :match)
-          t
-          (restart-case
-              (error 'ssh-bad-hostkey
-           :reason host-key-status
-           :hash (session-hostkey-fingerprint (session ssh)))
-      (accept () t)
-      (drop () nil)
-      (accept-once  (&optional (comment ""))
-        (progn
-        (known-hosts-add known-hosts (ssh-host+port-format ssh) host-key
-                 :comment comment)
-        t))
-      (accept-always (&optional (comment ""))
-        (progn
-        (known-hosts-add known-hosts (ssh-host+port-format ssh) host-key
-                 :comment comment)
-        (known-hosts-writefile known-hosts (hosts-db ssh))
-        t)))))))
+      (restart-case
+          (case host-key-status
+            (:match (return-from ssh-verify-session t))
+            (:not-found (error 'ssh-unknown-hostkey
+                               :host (host ssh)
+                               :hash (session-hostkey-fingerprint (session ssh))))
+            (t (error 'ssh-bad-hostkey
+                      :host (host ssh)
+                      :reason host-key-status
+                      :hash (session-hostkey-fingerprint (session ssh)))))
+        (accept () t)
+        (drop () nil)
+        (accept-once  (&optional (comment ""))
+          (progn
+            (known-hosts-add known-hosts (ssh-host+port-format ssh) host-key
+                             :comment comment)
+            t))
+        (accept-always (&optional (comment ""))
+          (progn
+            (known-hosts-add known-hosts (ssh-host+port-format ssh) host-key
+                             :comment comment)
+            (known-hosts-writefile known-hosts (hosts-db ssh))
+            t))))))
 
 (defmethod authentication-methods ((ssh ssh-connection) (login string))
   (session-auth-methods-list (session ssh) login))
