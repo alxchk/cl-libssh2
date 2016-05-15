@@ -46,6 +46,12 @@
                 :initform nil
                 :accessor auth-passed)))
 
+
+(define-condition ssh-authentication-failure (ssh-generic-error)
+  ()
+  (:documentation "is thrown in case authentication failed without specific error code~%"))
+
+
 (defmethod create-ssh-connection (host
                   &key
                   (hosts-db (default-known-hosts))
@@ -94,12 +100,13 @@
   `(let* ((,session (create-ssh-connection ,host ,@connection-args))
           (*ssh-connection* ,session))
      (unwind-protect
-          (when (authentication ,session ,auth-data)
-            (handler-bind ((libssh2-invalid-error-code
-                            (lambda (condition)
-                              (declare (ignore condition))
-                              (throw-last-error (session ,session)))))
-              ,@body))
+          (if (authentication ,session ,auth-data)
+	      (handler-bind ((libssh2-invalid-error-code
+			      (lambda (condition)
+				(declare (ignore condition))
+				(throw-last-error (session ,session)))))
+		,@body)
+	      (error 'ssh-authentication-failure))
        (destroy-ssh-connection ,session))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
