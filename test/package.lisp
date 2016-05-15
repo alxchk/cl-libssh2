@@ -20,7 +20,8 @@
 
 (defun run-all-tests ()
   (handler-bind ((libssh2::known-hosts-reading-error (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
-                 (libssh2::ssh-unknown-hostkey (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t)))
+                 (libssh2::ssh-unknown-hostkey (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
+                 (libssh2::ssh-authentiocation-failure (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t)))
     (progn
       (unit)
       (integration))))
