@@ -126,6 +126,7 @@
            ;; CONDITIONS & SLOTS
            :KNOWN-HOSTS-READING-ERROR
            :HOST-NOT-ALLOWED-TO-CONNECT
+	   :SSH-UNKNOWN-HOSTKEY
            :+TRACE-OPTIONS+
            :+DISCONNECT-CODE+
            :+ERROR-CODE+
