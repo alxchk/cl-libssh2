@@ -120,7 +120,7 @@
            :WITH-EXECUTE*
            :WITH-SCP-INPUT
            :WITH-SCP-OUTPUT
-           :scp-get
+           :scp-get           
            :scp-put
 
            ;; CONDITIONS & SLOTS
