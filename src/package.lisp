@@ -120,12 +120,13 @@
            :WITH-EXECUTE*
            :WITH-SCP-INPUT
            :WITH-SCP-OUTPUT
-           :scp-get
+           :scp-get           
            :scp-put
 
            ;; CONDITIONS & SLOTS
            :KNOWN-HOSTS-READING-ERROR
            :HOST-NOT-ALLOWED-TO-CONNECT
+	   :SSH-UNKNOWN-HOSTKEY
            :+TRACE-OPTIONS+
            :+DISCONNECT-CODE+
            :+ERROR-CODE+
