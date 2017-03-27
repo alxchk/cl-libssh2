@@ -18,7 +18,7 @@ set."
   ;; add other Lisps here if necessary
   #+(or :sbcl :cmu)
   (unless (eql read-timeout write-timeout)
-    (parameter-error "Read and write timeouts for socket must be equal."))
+    (error "Read and write timeouts for socket must be equal."))
   #+:clisp
   (when read-timeout
     (socket:socket-options (usocket:socket usocket) :SO-RCVTIMEO read-timeout))
