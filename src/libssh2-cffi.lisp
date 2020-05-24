@@ -818,3 +818,10 @@
   (with-foreign-strings (((fs-filename fs-filename-len) filename))
     (result-or-error
       (%libssh2-sftp-open-ex sftp fs-filename (- fs-filename-len 1) flags mode open-type))))
+
+(defcfun ("libssh2_channel_request_auth_agent" %channel-request-auth-agent) +ERROR-CODE+
+  (session +session+))
+
+(defun channel-request-auth-agent (session)
+  (let ((result (%channel-request-auth-agent session)))
+    (result-or-error result)))

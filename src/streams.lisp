@@ -97,17 +97,22 @@
       (session-free (session ssh)))))
 
 (defmacro with-ssh-connection (session (host auth-data &rest connection-args) &body body)
-  `(let* ((,session (create-ssh-connection ,host ,@connection-args))
-          (*ssh-connection* ,session))
-     (unwind-protect
-          (if (authentication ,session ,auth-data)
-	      (handler-bind ((libssh2-invalid-error-code
-			      (lambda (condition)
-				(declare (ignore condition))
-				(throw-last-error (session ,session)))))
-		,@body)
-	      (error 'ssh-authentication-failure))
-       (destroy-ssh-connection ,session))))
+  (let ((forward-agent (getf connection-args :forward-agent)))
+    (alexandria:remove-from-plistf connection-args
+                                   :forward-agent)
+    `(let* ((,session (create-ssh-connection ,host ,@connection-args))
+            (*ssh-connection* ,session))
+       (unwind-protect
+            (if (authentication ,session ,auth-data)
+                (handler-bind ((libssh2-invalid-error-code
+                                 (lambda (condition)
+                                   (declare (ignore condition))
+                                   (throw-last-error (session ,session)))))
+                  ,@(when forward-agent
+                      `((channel-request-auth-agent (session ,session))))
+                  ,@body)
+                (error 'ssh-authentication-failure))
+         (destroy-ssh-connection ,session)))))
 
 (defmethod ssh-session-key ((ssh ssh-connection))
   (session-hostkey (session ssh)))
