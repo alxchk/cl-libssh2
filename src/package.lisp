@@ -50,6 +50,7 @@
            :channel-send-eof
            :channel-exit-status
            :channel-scp-recv
+           :channel-request-auth-agent
 
            ;; SFTP
            :sftp-list-directory
